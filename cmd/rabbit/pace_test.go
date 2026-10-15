@@ -189,3 +189,20 @@ func TestSplitAt(t *testing.T) {
 		t.Errorf("SplitAt(5000) = %v at %d, want first split %v", half.Elapsed, i, splits[0].Elapsed)
 	}
 }
+
+func TestMPH(t *testing.T) {
+	tests := []struct {
+		pace time.Duration
+		u    Unit
+		want float64
+	}{
+		{7 * time.Minute, Mile, 60.0 / 7},
+		{6 * time.Minute, Mile, 10},
+		{5 * time.Minute, Kilometer, 12 / 1.609344},
+	}
+	for _, tt := range tests {
+		if got := MPH(tt.pace, tt.u); math.Abs(got-tt.want) > 1e-9 {
+			t.Errorf("MPH(%v /%s) = %v, want %v", tt.pace, tt.u.Name, got, tt.want)
+		}
+	}
+}

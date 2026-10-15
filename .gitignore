@@ -1,2 +1,5 @@
-# Compiled binary from `go build`
-/pacecalc
+# Compiled binary from `go build ./cmd/rabbit`
+/rabbit
+
+# GoReleaser output
+/dist/

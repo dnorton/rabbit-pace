@@ -1,4 +1,5 @@
-// Command pacecalc is a running pace calculator.
+// Command rabbit is a running pace calculator, named after the pacers
+// who set the tempo in a race.
 package main
 
 import (
@@ -13,13 +14,17 @@ import (
 	"time"
 )
 
-const usage = `pacecalc - running pace calculator
+// version is set at build time with -ldflags "-X main.version=...".
+var version = "dev"
+
+const usage = `rabbit - running pace calculator
 
 Usage:
-  pacecalc pace   -time <time> -dist <distance>
-  pacecalc splits (-pace <pace> | -time <time>) -dist <distance>
-                  [-unit km|mi] [-every <distance>] [-halfway]
-                  [-neg <percent> | -pos <percent>]
+  rabbit pace   -time <time> -dist <distance> [-mph]
+  rabbit splits (-pace <pace> | -time <time>) -dist <distance>
+                [-unit km|mi] [-every <distance>] [-halfway] [-mph]
+                [-neg <percent> | -pos <percent>]
+  rabbit version
 
 Commands:
   pace     Work out pace (min/km and min/mi) from a finish time and distance.
@@ -27,6 +32,9 @@ Commands:
            pace needed for a finish time. -halfway adds a halfway row.
            -neg 5 starts 5% slower and finishes 5% faster (negative split);
            -pos 5 does the reverse. The finish time stays the same.
+  version  Print the version.
+
+  -mph adds speed in miles per hour (for treadmills) to either command.
 
 Formats:
   time/pace  hh:mm:ss, mm:ss, or Go durations like 45m30s
@@ -34,17 +42,17 @@ Formats:
              (a bare number like 10 uses km, or -unit for splits)
 
 Examples:
-  pacecalc pace -time 45:30 -dist 10k
-  pacecalc splits -pace 4:30 -dist half
-  pacecalc splits -pace 8:00 -unit mi -dist 26.2
-  pacecalc splits -pace 4:30 -dist marathon -every 5k
-  pacecalc splits -pace 4:30 -dist half -neg 5
-  pacecalc splits -time 3:00:00 -dist marathon -every 5k -halfway -neg 2
+  rabbit pace -time 45:30 -dist 10k
+  rabbit splits -pace 4:30 -dist half
+  rabbit splits -pace 8:00 -unit mi -dist 26.2
+  rabbit splits -pace 4:30 -dist marathon -every 5k
+  rabbit splits -pace 4:30 -dist half -neg 5
+  rabbit splits -time 3:00:00 -dist marathon -every 5k -halfway -neg 2
 `
 
 func main() {
 	if err := run(os.Args[1:], os.Stdout); err != nil {
-		fmt.Fprintln(os.Stderr, "pacecalc:", err)
+		fmt.Fprintln(os.Stderr, "rabbit:", err)
 		os.Exit(1)
 	}
 }
@@ -59,17 +67,21 @@ func run(args []string, out io.Writer) error {
 		return runPace(args[1:], out)
 	case "splits":
 		return runSplits(args[1:], out)
+	case "version", "-version", "--version":
+		fmt.Fprintln(out, "rabbit", version)
+		return nil
 	case "help", "-h", "-help", "--help":
 		fmt.Fprint(out, usage)
 		return nil
 	}
-	return fmt.Errorf("unknown command %q (run 'pacecalc help')", args[0])
+	return fmt.Errorf("unknown command %q (run 'rabbit help')", args[0])
 }
 
 func runPace(args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("pace", flag.ContinueOnError)
 	timeStr := fs.String("time", "", "finish time, e.g. 45:30 or 1:45:00")
 	distStr := fs.String("dist", "", "distance, e.g. 10k, 13.1mi, marathon")
+	mph := fs.Bool("mph", false, "also show speed in miles per hour")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -90,6 +102,9 @@ func runPace(args []string, out io.Writer) error {
 	fmt.Fprintf(out, "Time:     %s\n", FormatClock(total))
 	fmt.Fprintf(out, "Pace:     %s /km\n", FormatClock(PaceFor(total, meters, Kilometer)))
 	fmt.Fprintf(out, "          %s /mi\n", FormatClock(PaceFor(total, meters, Mile)))
+	if *mph {
+		fmt.Fprintf(out, "Speed:    %.1f mph\n", MPH(PaceFor(total, meters, Mile), Mile))
+	}
 	return nil
 }
 
@@ -101,6 +116,7 @@ func runSplits(args []string, out io.Writer) error {
 	unitStr := fs.String("unit", "km", "unit of the pace and splits: km or mi")
 	everyStr := fs.String("every", "", "split length, e.g. 5k or 1mi (default: one -unit)")
 	halfway := fs.Bool("halfway", false, "add a row at the halfway point")
+	mph := fs.Bool("mph", false, "add a speed column in miles per hour")
 	neg := fs.Float64("neg", 0, "negative split: start this percent slower, finish this percent faster")
 	pos := fs.Float64("pos", 0, "positive split: start this percent faster, finish this percent slower")
 	if err := fs.Parse(args); err != nil {
@@ -152,8 +168,19 @@ func runSplits(args []string, out io.Writer) error {
 		return FormatClock(PaceFor(p, unit.Meters, Kilometer)), FormatClock(PaceFor(p, unit.Meters, Mile))
 	}
 
+	// speed formats a pace per unit as an extra mph column, if -mph is set.
+	speed := func(p time.Duration) string {
+		if !*mph {
+			return ""
+		}
+		return fmt.Sprintf("%.1f\t", MPH(p, unit))
+	}
+
 	km, mi := paces(pace)
 	fmt.Fprintf(out, "Target pace: %s /km, %s /mi\n", km, mi)
+	if *mph {
+		fmt.Fprintf(out, "Speed:       %.1f mph\n", MPH(pace, unit))
+	}
 	if skew != 0 {
 		kind, pct := "Negative", *neg
 		if skew < 0 {
@@ -175,7 +202,11 @@ func runSplits(args []string, out io.Writer) error {
 	}
 
 	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', tabwriter.AlignRight)
-	fmt.Fprintf(tw, "Split\tDistance (%s)\tPace /km\tPace /mi\tSplit Time\tTotal Time\t\n", unit.Name)
+	mphHeader := ""
+	if *mph {
+		mphHeader = "MPH\t"
+	}
+	fmt.Fprintf(tw, "Split\tDistance (%s)\tPace /km\tPace /mi\t%sSplit Time\tTotal Time\t\n", unit.Name, mphHeader)
 	for i, s := range splits {
 		label := strconv.Itoa(s.Number)
 		if i == halfIdx {
@@ -183,13 +214,13 @@ func runSplits(args []string, out io.Writer) error {
 				label += " (half)"
 			} else {
 				km, mi := paces(half.Pace)
-				fmt.Fprintf(tw, "Half\t%s\t%s\t%s\t\t%s\t\n",
-					fmtDist(half.Meters, unit), km, mi, FormatClock(half.Elapsed))
+				fmt.Fprintf(tw, "Half\t%s\t%s\t%s\t%s\t%s\t\n",
+					fmtDist(half.Meters, unit), km, mi, speed(half.Pace), FormatClock(half.Elapsed))
 			}
 		}
 		km, mi := paces(s.Pace)
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t\n",
-			label, fmtDist(s.Meters, unit), km, mi, FormatClock(s.Time), FormatClock(s.Elapsed))
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s%s\t%s\t\n",
+			label, fmtDist(s.Meters, unit), km, mi, speed(s.Pace), FormatClock(s.Time), FormatClock(s.Elapsed))
 	}
 	return tw.Flush()
 }
