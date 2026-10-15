@@ -1,0 +1,61 @@
+# GoReleaser builds release binaries and Linux packages when a version tag
+# (e.g. v0.1.0) is pushed. See .github/workflows/release.yml.
+version: 2
+
+project_name: rabbit
+
+before:
+  hooks:
+    - go test ./...
+
+builds:
+  - main: ./cmd/rabbit
+    binary: rabbit
+    env:
+      - CGO_ENABLED=0
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+
+archives:
+  # No version in the name, so .../releases/latest/download/<name> always
+  # points at the newest release. install.sh relies on this.
+  - name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files:
+      - README.md
+      - LICENSE
+
+checksum:
+  name_template: checksums.txt
+
+# Linux packages. The package is named rabbit-pace because Debian and
+# Ubuntu already ship an unrelated "rabbit" package that also installs
+# /usr/bin/rabbit, so the two can't be installed together.
+nfpms:
+  - package_name: rabbit-pace
+    vendor: dnorton
+    maintainer: dnorton
+    homepage: https://github.com/dnorton/rabbit-pace
+    description: Running pace calculator with split tables, negative splits and treadmill mph.
+    license: MIT
+    contents:
+      - src: LICENSE
+        dst: /usr/share/licenses/rabbit-pace/LICENSE
+    formats: [deb, rpm, apk, archlinux]
+    bindir: /usr/bin
+    conflicts:
+      - rabbit
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"

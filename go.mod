@@ -1,3 +1,3 @@
-module github.com/dnorton/pacecalc
+module github.com/dnorton/rabbit-pace
 
-go 1.27.2
+go 1.27.0
