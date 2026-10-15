@@ -9,7 +9,9 @@ import (
 	"io"
 	"math"
 	"os"
+	"runtime/debug"
 	"strconv"
+	"strings"
 	"text/tabwriter"
 	"time"
 )
@@ -68,7 +70,7 @@ func run(args []string, out io.Writer) error {
 	case "splits":
 		return runSplits(args[1:], out)
 	case "version", "-version", "--version":
-		fmt.Fprintln(out, "rabbit", version)
+		fmt.Fprintln(out, "rabbit", currentVersion())
 		return nil
 	case "help", "-h", "-help", "--help":
 		fmt.Fprint(out, usage)
@@ -236,6 +238,21 @@ func parseFlags(fs *flag.FlagSet, args []string) error {
 		return fmt.Errorf("unexpected argument %q (quote values that contain spaces, e.g. -every \"2 miles\", or write 2mi)", fs.Arg(0))
 	}
 	return nil
+}
+
+// currentVersion returns the version set by -ldflags in release builds.
+// Otherwise it falls back to the module version Go records in binaries
+// built with "go install ...@v0.1.1", trimming the "v" to match releases.
+func currentVersion() string {
+	if version != "dev" {
+		return version
+	}
+	if info, ok := debug.ReadBuildInfo(); ok {
+		if v := info.Main.Version; v != "" && v != "(devel)" {
+			return strings.TrimPrefix(v, "v")
+		}
+	}
+	return version
 }
 
 // fmtDist formats meters in unit with up to two decimals, trimming
