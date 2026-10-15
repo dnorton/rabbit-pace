@@ -82,7 +82,7 @@ func runPace(args []string, out io.Writer) error {
 	timeStr := fs.String("time", "", "finish time, e.g. 45:30 or 1:45:00")
 	distStr := fs.String("dist", "", "distance, e.g. 10k, 13.1mi, marathon")
 	mph := fs.Bool("mph", false, "also show speed in miles per hour")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
 	if *timeStr == "" || *distStr == "" {
@@ -119,7 +119,7 @@ func runSplits(args []string, out io.Writer) error {
 	mph := fs.Bool("mph", false, "add a speed column in miles per hour")
 	neg := fs.Float64("neg", 0, "negative split: start this percent slower, finish this percent faster")
 	pos := fs.Float64("pos", 0, "positive split: start this percent faster, finish this percent slower")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
 	if (*paceStr == "") == (*timeStr == "") || *distStr == "" {
@@ -223,6 +223,19 @@ func runSplits(args []string, out io.Writer) error {
 			label, fmtDist(s.Meters, unit), km, mi, speed(s.Pace), FormatClock(s.Time), FormatClock(s.Elapsed))
 	}
 	return tw.Flush()
+}
+
+// parseFlags parses args into fs and rejects anything left over. The flag
+// package stops at the first non-flag argument, so without this check
+// "-every 2 miles -mph" would quietly ignore both "miles" and "-mph".
+func parseFlags(fs *flag.FlagSet, args []string) error {
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() > 0 {
+		return fmt.Errorf("unexpected argument %q (quote values that contain spaces, e.g. -every \"2 miles\", or write 2mi)", fs.Arg(0))
+	}
+	return nil
 }
 
 // fmtDist formats meters in unit with up to two decimals, trimming
