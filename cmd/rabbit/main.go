@@ -12,8 +12,9 @@ import (
 	"runtime/debug"
 	"strconv"
 	"strings"
-	"text/tabwriter"
 	"time"
+
+	"github.com/charmbracelet/colorprofile"
 )
 
 // version is set at build time with -ldflags "-X main.version=...".
@@ -22,9 +23,9 @@ var version = "dev"
 const usage = `rabbit - running pace calculator
 
 Usage:
-  rabbit pace   -time <time> -dist <distance> [-mph]
+  rabbit pace   -time <time> -dist <distance> [-mph] [-md]
   rabbit splits (-pace <pace> | -time <time>) -dist <distance>
-                [-unit km|mi] [-every <distance>] [-halfway] [-mph]
+                [-unit km|mi] [-every <distance>] [-halfway] [-mph] [-md]
                 [-neg <percent> | -pos <percent>]
   rabbit version
 
@@ -37,6 +38,7 @@ Commands:
   version  Print the version.
 
   -mph adds speed in miles per hour (for treadmills) to either command.
+  -md prints Markdown instead, ready to paste into Obsidian or a README.
 
 Formats:
   time/pace  hh:mm:ss, mm:ss, or Go durations like 45m30s
@@ -50,10 +52,14 @@ Examples:
   rabbit splits -pace 4:30 -dist marathon -every 5k
   rabbit splits -pace 4:30 -dist half -neg 5
   rabbit splits -time 3:00:00 -dist marathon -every 5k -halfway -neg 2
+  rabbit splits -pace 7:00 -unit mi -dist 10k -md
 `
 
 func main() {
-	if err := run(os.Args[1:], os.Stdout); err != nil {
+	// colorprofile drops or downgrades colours to suit the terminal, and
+	// strips them entirely when output is piped or NO_COLOR is set.
+	out := colorprofile.NewWriter(os.Stdout, os.Environ())
+	if err := run(os.Args[1:], out); err != nil {
 		fmt.Fprintln(os.Stderr, "rabbit:", err)
 		os.Exit(1)
 	}
@@ -84,6 +90,7 @@ func runPace(args []string, out io.Writer) error {
 	timeStr := fs.String("time", "", "finish time, e.g. 45:30 or 1:45:00")
 	distStr := fs.String("dist", "", "distance, e.g. 10k, 13.1mi, marathon")
 	mph := fs.Bool("mph", false, "also show speed in miles per hour")
+	md := fs.Bool("md", false, "print Markdown (e.g. for Obsidian) instead of styled text")
 	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
@@ -100,14 +107,15 @@ func runPace(args []string, out io.Writer) error {
 		return err
 	}
 
-	fmt.Fprintf(out, "Distance: %s km / %s mi\n", fmtDist(meters, Kilometer), fmtDist(meters, Mile))
-	fmt.Fprintf(out, "Time:     %s\n", FormatClock(total))
-	fmt.Fprintf(out, "Pace:     %s /km\n", FormatClock(PaceFor(total, meters, Kilometer)))
-	fmt.Fprintf(out, "          %s /mi\n", FormatClock(PaceFor(total, meters, Mile)))
+	r := Report{Summary: []Field{
+		{"Distance", fmtDist(meters, Kilometer) + " km · " + fmtDist(meters, Mile) + " mi"},
+		{"Time", FormatClock(total)},
+		{"Pace", FormatClock(PaceFor(total, meters, Kilometer)) + " /km · " + FormatClock(PaceFor(total, meters, Mile)) + " /mi"},
+	}}
 	if *mph {
-		fmt.Fprintf(out, "Speed:    %.1f mph\n", MPH(PaceFor(total, meters, Mile), Mile))
+		r.Summary = append(r.Summary, Field{"Speed", fmt.Sprintf("%.1f mph", MPH(PaceFor(total, meters, Mile), Mile))})
 	}
-	return nil
+	return r.write(out, *md)
 }
 
 func runSplits(args []string, out io.Writer) error {
@@ -121,6 +129,7 @@ func runSplits(args []string, out io.Writer) error {
 	mph := fs.Bool("mph", false, "add a speed column in miles per hour")
 	neg := fs.Float64("neg", 0, "negative split: start this percent slower, finish this percent faster")
 	pos := fs.Float64("pos", 0, "positive split: start this percent faster, finish this percent slower")
+	md := fs.Bool("md", false, "print Markdown (e.g. for Obsidian) instead of a styled table")
 	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
@@ -165,34 +174,46 @@ func runSplits(args []string, out io.Writer) error {
 	splits := Splits(pace, unit, interval, meters, skew)
 	first, last := splits[0], splits[len(splits)-1]
 
-	// paces formats a pace per unit as "km pace / mi pace".
+	// paces formats a pace per unit in both km and mi.
 	paces := func(p time.Duration) (string, string) {
 		return FormatClock(PaceFor(p, unit.Meters, Kilometer)), FormatClock(PaceFor(p, unit.Meters, Mile))
 	}
-
-	// speed formats a pace per unit as an extra mph column, if -mph is set.
 	speed := func(p time.Duration) string {
-		if !*mph {
-			return ""
+		return fmt.Sprintf("%.1f", MPH(p, unit))
+	}
+	// trend compares a split's pace to the target, ignoring differences
+	// too small to show once rounded to the second.
+	trend := func(p time.Duration) int {
+		switch d := p - pace; {
+		case d < -time.Second/2:
+			return -1
+		case d > time.Second/2:
+			return 1
 		}
-		return fmt.Sprintf("%.1f\t", MPH(p, unit))
+		return 0
 	}
 
 	km, mi := paces(pace)
-	fmt.Fprintf(out, "Target pace: %s /km, %s /mi\n", km, mi)
+	r := Report{Summary: []Field{
+		{"Distance", fmtDist(meters, Kilometer) + " km · " + fmtDist(meters, Mile) + " mi"},
+		{"Target pace", km + " /km · " + mi + " /mi"},
+	}}
 	if *mph {
-		fmt.Fprintf(out, "Speed:       %.1f mph\n", MPH(pace, unit))
+		r.Summary = append(r.Summary, Field{"Speed", speed(pace) + " mph"})
 	}
 	if skew != 0 {
-		kind, pct := "Negative", *neg
+		label, pct := "Negative split", *neg
 		if skew < 0 {
-			kind, pct = "Positive", *pos
+			label, pct = "Positive split", *pos
 		}
 		firstKm, firstMi := paces(first.Pace)
 		lastKm, lastMi := paces(last.Pace)
-		fmt.Fprintf(out, "%s split %g%%: %s -> %s /km, %s -> %s /mi\n", kind, pct, firstKm, lastKm, firstMi, lastMi)
+		r.Summary = append(r.Summary, Field{
+			fmt.Sprintf("%s %g%%", label, pct),
+			firstKm + " → " + lastKm + " /km · " + firstMi + " → " + lastMi + " /mi",
+		})
 	}
-	fmt.Fprintf(out, "Finish:      %s\n\n", FormatClock(last.Elapsed))
+	r.Summary = append(r.Summary, Field{"Finish", FormatClock(last.Elapsed)})
 
 	// Work out where the halfway row goes. If halfway falls on a split
 	// boundary, that split is labelled instead of adding a row.
@@ -203,28 +224,39 @@ func runSplits(args []string, out io.Writer) error {
 		halfOnSplit = math.Abs(splits[halfIdx].Meters-meters/2) < 0.5
 	}
 
-	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', tabwriter.AlignRight)
-	mphHeader := ""
-	if *mph {
-		mphHeader = "MPH\t"
+	t := &Table{
+		Headers:   []string{"Split", "Distance (" + unit.Name + ")", "Pace /km", "Pace /mi"},
+		TrendCols: []int{2, 3},
 	}
-	fmt.Fprintf(tw, "Split\tDistance (%s)\tPace /km\tPace /mi\t%sSplit Time\tTotal Time\t\n", unit.Name, mphHeader)
+	if *mph {
+		t.Headers = append(t.Headers, "MPH")
+		t.TrendCols = append(t.TrendCols, 4)
+	}
+	t.Headers = append(t.Headers, "Split Time", "Total Time")
+
+	// row builds a table row; splitTime is empty for the halfway row.
+	row := func(label string, s Split, splitTime string, isHalf bool) Row {
+		km, mi := paces(s.Pace)
+		cells := []string{label, fmtDist(s.Meters, unit), km, mi}
+		if *mph {
+			cells = append(cells, speed(s.Pace))
+		}
+		cells = append(cells, splitTime, FormatClock(s.Elapsed))
+		return Row{Cells: cells, Half: isHalf, Trend: trend(s.Pace)}
+	}
 	for i, s := range splits {
 		label := strconv.Itoa(s.Number)
 		if i == halfIdx {
 			if halfOnSplit {
 				label += " (half)"
 			} else {
-				km, mi := paces(half.Pace)
-				fmt.Fprintf(tw, "Half\t%s\t%s\t%s\t%s\t%s\t\n",
-					fmtDist(half.Meters, unit), km, mi, speed(half.Pace), FormatClock(half.Elapsed))
+				t.Rows = append(t.Rows, row("Half", half, "", true))
 			}
 		}
-		km, mi := paces(s.Pace)
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s%s\t%s\t\n",
-			label, fmtDist(s.Meters, unit), km, mi, speed(s.Pace), FormatClock(s.Time), FormatClock(s.Elapsed))
+		t.Rows = append(t.Rows, row(label, s, FormatClock(s.Time), i == halfIdx && halfOnSplit))
 	}
-	return tw.Flush()
+	r.Table = t
+	return r.write(out, *md)
 }
 
 // parseFlags parses args into fs and rejects anything left over. The flag
