@@ -116,6 +116,17 @@ func PaceFor(total time.Duration, meters float64, u Unit) time.Duration {
 	return time.Duration(float64(total) * u.Meters / meters)
 }
 
+// TimeFor returns how long meters takes at pace (time per unit u).
+func TimeFor(pace time.Duration, u Unit, meters float64) time.Duration {
+	return time.Duration(float64(pace) * meters / u.Meters)
+}
+
+// DistanceFor returns how many meters are covered in total time at pace
+// (time per unit u).
+func DistanceFor(total, pace time.Duration, u Unit) float64 {
+	return float64(total) / float64(pace) * u.Meters
+}
+
 // MPH converts a pace (time per unit u) to a speed in miles per hour.
 func MPH(pace time.Duration, u Unit) float64 {
 	return u.Meters / Mile.Meters / pace.Hours()

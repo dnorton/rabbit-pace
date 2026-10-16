@@ -206,3 +206,20 @@ func TestMPH(t *testing.T) {
 		}
 	}
 }
+
+func TestTimeForAndDistanceFor(t *testing.T) {
+	// 7:00/mi over a half marathon.
+	if got := FormatClock(TimeFor(7*time.Minute, Mile, 21097.5)); got != "1:31:46" {
+		t.Errorf("TimeFor = %s, want 1:31:46", got)
+	}
+	// 30 minutes at 5:00/km is 6 km.
+	if got := DistanceFor(30*time.Minute, 5*time.Minute, Kilometer); math.Abs(got-6000) > 1e-9 {
+		t.Errorf("DistanceFor = %v, want 6000", got)
+	}
+	// Round trip: pace from the time and distance we just computed. Float
+	// rounding can leave it a nanosecond out, so allow a little slack.
+	meters := DistanceFor(45*time.Minute, 7*time.Minute, Mile)
+	if got := PaceFor(45*time.Minute, meters, Mile); (got - 7*time.Minute).Abs() > time.Microsecond {
+		t.Errorf("round trip pace = %v, want 7m", got)
+	}
+}

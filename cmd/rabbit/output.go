@@ -16,9 +16,11 @@ type Report struct {
 	Table   *Table
 }
 
-// Field is one "Label: value" summary line.
+// Field is one "Label: value" summary line. Calculated marks the value
+// rabbit worked out (rather than one the user gave), which is highlighted.
 type Field struct {
 	Label, Value string
+	Calculated   bool
 }
 
 // Table is a table of right-aligned values.
@@ -42,6 +44,7 @@ type Row struct {
 var (
 	labelStyle  = lipgloss.NewStyle().Faint(true)
 	valueStyle  = lipgloss.NewStyle().Bold(true)
+	calcStyle   = valueStyle.Foreground(lipgloss.Color("6")) // cyan, like the table header
 	headerStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("6")).Padding(0, 1).Align(lipgloss.Right)
 	cellStyle   = lipgloss.NewStyle().Padding(0, 1).Align(lipgloss.Right)
 	borderStyle = lipgloss.NewStyle().Faint(true)
@@ -61,7 +64,11 @@ func (r Report) WriteStyled(w io.Writer) error {
 	var b strings.Builder
 	for _, f := range r.Summary {
 		label := fmt.Sprintf("%-*s", width, f.Label)
-		fmt.Fprintf(&b, "%s  %s\n", labelStyle.Render(label), valueStyle.Render(f.Value))
+		style := valueStyle
+		if f.Calculated {
+			style = calcStyle
+		}
+		fmt.Fprintf(&b, "%s  %s\n", labelStyle.Render(label), style.Render(f.Value))
 	}
 
 	if t := r.Table; t != nil {
@@ -111,7 +118,11 @@ func (r Report) WriteStyled(w io.Writer) error {
 func (r Report) WriteMarkdown(w io.Writer) error {
 	var b strings.Builder
 	for _, f := range r.Summary {
-		fmt.Fprintf(&b, "- **%s:** %s\n", f.Label, f.Value)
+		value := f.Value
+		if f.Calculated {
+			value = "**" + value + "**"
+		}
+		fmt.Fprintf(&b, "- **%s:** %s\n", f.Label, value)
 	}
 
 	if t := r.Table; t != nil {
