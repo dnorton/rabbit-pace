@@ -4,7 +4,9 @@ FROM --platform=$BUILDPLATFORM golang:1.27-alpine AS build
 ARG TARGETOS TARGETARCH
 ARG VERSION=dev
 WORKDIR /src
-COPY go.mod ./
+# Download modules first so they're cached between code changes.
+COPY go.mod go.sum ./
+RUN go mod download
 COPY cmd ./cmd
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
     go build -trimpath -ldflags "-s -w -X main.version=$VERSION" -o /out/rabbit ./cmd/rabbit

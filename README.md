@@ -5,18 +5,30 @@ Named after the "rabbits": the pacers who set the tempo in a race.
 
 ```
 $ rabbit splits -time 3:00:00 -dist marathon -every 5k -halfway -neg 2
-Target pace: 4:16 /km, 6:52 /mi
-Negative split 2%: 4:21 -> 4:11 /km, 7:00 -> 6:43 /mi
-Finish:      3:00:00
+Distance           42.2 km · 26.22 mi
+Target pace        4:16 /km · 6:52 /mi
+Negative split 2%  4:21 → 4:11 /km · 7:00 → 6:43 /mi
+Finish             3:00:00
 
-  Split  Distance (km)  Pace /km  Pace /mi  Split Time  Total Time
-      1              5      4:21      7:00       21:44       21:44
-      2             10      4:19      6:58       21:37       43:21
-    ...
-   Half           21.1      4:16      6:51                 1:30:57
-    ...
-      9           42.2      4:11      6:43        9:10     3:00:00
+╭───────┬───────────────┬──────────┬──────────┬────────────┬────────────╮
+│ Split │ Distance (km) │ Pace /km │ Pace /mi │ Split Time │ Total Time │
+├───────┼───────────────┼──────────┼──────────┼────────────┼────────────┤
+│     1 │             5 │     4:21 │     7:00 │      21:44 │      21:44 │
+│     2 │            10 │     4:19 │     6:58 │      21:37 │      43:21 │
+│     3 │            15 │     4:18 │     6:55 │      21:31 │    1:04:52 │
+│     4 │            20 │     4:17 │     6:53 │      21:24 │    1:26:16 │
+│  Half │          21.1 │     4:16 │     6:51 │            │    1:30:57 │
+│     5 │            25 │     4:16 │     6:51 │      21:18 │    1:47:34 │
+│     6 │            30 │     4:14 │     6:49 │      21:12 │    2:08:46 │
+│     7 │            35 │     4:13 │     6:47 │      21:05 │    2:29:51 │
+│     8 │            40 │     4:12 │     6:45 │      20:59 │    2:50:50 │
+│     9 │          42.2 │     4:11 │     6:43 │       9:10 │    3:00:00 │
+╰───────┴───────────────┴──────────┴──────────┴────────────┴────────────╯
 ```
+
+In a terminal the table is coloured: splits faster than the target pace are
+green, slower ones yellow, and the halfway row is highlighted. Colours are
+turned off automatically when output is piped or `NO_COLOR` is set.
 
 ## Install
 
@@ -104,6 +116,21 @@ rabbit splits -pace 7:00 -unit mi -dist 5k -mph
 ```
 
 The split table shows pace in both min/km and min/mi.
+
+### Markdown (Obsidian, READMEs)
+
+Add `-md` to either command to print Markdown instead: the summary as a list
+and the splits as a table that renders properly when pasted into Obsidian
+or any Markdown editor.
+
+```bash
+rabbit splits -time 3:00:00 -dist marathon -every 5k -halfway -neg 2 -md
+
+# Straight to the clipboard
+rabbit splits -pace 7:00 -unit mi -dist 10k -md | wl-copy          # Wayland
+rabbit splits -pace 7:00 -unit mi -dist 10k -md | xclip -sel clip  # X11
+rabbit splits -pace 7:00 -unit mi -dist 10k -md | pbcopy           # macOS
+```
 
 Times and paces accept `hh:mm:ss`, `mm:ss`, or Go durations like `45m30s`.
 Distances accept `10k`, `5km`, `13.1mi`, `800m`, `half`, `marathon`, or a bare
