@@ -90,10 +90,36 @@ because Debian and Ubuntu already have an unrelated `rabbit` package.
 
 ## Usage
 
-```bash
-# Pace from a finish time and distance (shows min/km and min/mi)
-rabbit pace -time 45:30 -dist 10k
+### Pace, finish time or distance
 
+Give `rabbit pace` any two of `-time`, `-pace` and `-dist`, and it works out
+the third, highlighted in the terminal. `-unit km|mi` sets the unit of
+`-pace` (km by default).
+
+```
+# Pace from time + distance
+$ rabbit pace -time 45:30 -dist 10k
+Distance  10 km · 6.21 mi
+Time      45:30
+Pace      4:33 /km · 7:19 /mi
+
+# Finish time from pace + distance
+$ rabbit pace -pace 7:00 -unit mi -dist half -mph
+Distance  21.1 km · 13.11 mi
+Time      1:31:46
+Pace      4:21 /km · 7:00 /mi
+Speed     8.6 mph
+
+# Distance from pace + time
+$ rabbit pace -pace 5:00 -time 30:00
+Distance  6 km · 3.73 mi
+Time      30:00
+Pace      5:00 /km · 8:03 /mi
+```
+
+### Split tables
+
+```bash
 # Split table for a distance at a given pace (-unit defaults to km)
 rabbit splits -pace 4:30 -dist half
 rabbit splits -pace 8:00 -unit mi -dist 26.2
@@ -110,8 +136,7 @@ rabbit splits -pace 8:00 -unit mi -dist 10k -pos 3
 # Use a finish time instead of a pace, and add a halfway row
 rabbit splits -time 3:00:00 -dist marathon -every 5k -halfway -neg 2
 
-# Add treadmill speed in mph to either command
-rabbit pace -time 3:00:00 -dist marathon -mph
+# Add treadmill speed in mph (works with pace too)
 rabbit splits -pace 7:00 -unit mi -dist 5k -mph
 ```
 
@@ -120,21 +145,52 @@ The split table shows pace in both min/km and min/mi.
 ### Markdown (Obsidian, READMEs)
 
 Add `-md` to either command to print Markdown instead: the summary as a list
-and the splits as a table that renders properly when pasted into Obsidian
-or any Markdown editor.
+(with the calculated value in bold) and the splits as a table that renders
+properly when pasted into Obsidian or any Markdown editor.
 
 ```bash
-rabbit splits -time 3:00:00 -dist marathon -every 5k -halfway -neg 2 -md
-
 # Straight to the clipboard
-rabbit splits -pace 7:00 -unit mi -dist 10k -md | wl-copy          # Wayland
-rabbit splits -pace 7:00 -unit mi -dist 10k -md | xclip -sel clip  # X11
-rabbit splits -pace 7:00 -unit mi -dist 10k -md | pbcopy           # macOS
+rabbit splits -pace 7:00 -unit mi -dist 5k -halfway -md | wl-copy          # Wayland
+rabbit splits -pace 7:00 -unit mi -dist 5k -halfway -md | xclip -sel clip  # X11
+rabbit splits -pace 7:00 -unit mi -dist 5k -halfway -md | pbcopy           # macOS
 ```
+
+That prints:
+
+```markdown
+- **Distance:** 5 km · 3.11 mi
+- **Target pace:** 4:21 /km · 7:00 /mi
+- **Finish:** 21:45
+
+| Split | Distance (mi) | Pace /km | Pace /mi | Split Time | Total Time |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 1 | 4:21 | 7:00 | 7:00 | 7:00 |
+| **Half** | 1.55 | 4:21 | 7:00 |  | 10:52 |
+| 2 | 2 | 4:21 | 7:00 | 7:00 | 14:00 |
+| 3 | 3 | 4:21 | 7:00 | 7:00 | 21:00 |
+| 4 | 3.11 | 4:21 | 7:00 | 0:45 | 21:45 |
+```
+
+which renders as:
+
+- **Distance:** 5 km · 3.11 mi
+- **Target pace:** 4:21 /km · 7:00 /mi
+- **Finish:** 21:45
+
+| Split | Distance (mi) | Pace /km | Pace /mi | Split Time | Total Time |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 1 | 4:21 | 7:00 | 7:00 | 7:00 |
+| **Half** | 1.55 | 4:21 | 7:00 |  | 10:52 |
+| 2 | 2 | 4:21 | 7:00 | 7:00 | 14:00 |
+| 3 | 3 | 4:21 | 7:00 | 7:00 | 21:00 |
+| 4 | 3.11 | 4:21 | 7:00 | 0:45 | 21:45 |
+
+### Input formats
 
 Times and paces accept `hh:mm:ss`, `mm:ss`, or Go durations like `45m30s`.
 Distances accept `10k`, `5km`, `13.1mi`, `800m`, `half`, `marathon`, or a bare
-number (km for `pace`, the `-unit` for `splits`).
+number in `-unit` (km by default). Quote distances that contain a space
+(`-every "2 miles"`) or leave the space out (`2mi`).
 
 ## Development
 

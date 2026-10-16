@@ -23,14 +23,17 @@ var version = "dev"
 const usage = `rabbit - running pace calculator
 
 Usage:
-  rabbit pace   -time <time> -dist <distance> [-mph] [-md]
+  rabbit pace   two of: -time <time>  -pace <pace>  -dist <distance>
+                [-unit km|mi] [-mph] [-md]
   rabbit splits (-pace <pace> | -time <time>) -dist <distance>
                 [-unit km|mi] [-every <distance>] [-halfway] [-mph] [-md]
                 [-neg <percent> | -pos <percent>]
   rabbit version
 
 Commands:
-  pace     Work out pace (min/km and min/mi) from a finish time and distance.
+  pace     Give any two of time, pace and distance; rabbit works out the
+           third (pace from time + distance, finish time from pace +
+           distance, or distance from time + pace).
   splits   Print a split table for a distance run at a given pace, or the
            pace needed for a finish time. -halfway adds a halfway row.
            -neg 5 starts 5% slower and finishes 5% faster (negative split);
@@ -43,10 +46,12 @@ Commands:
 Formats:
   time/pace  hh:mm:ss, mm:ss, or Go durations like 45m30s
   distance   10k, 5km, 13.1mi, 800m, half, marathon
-             (a bare number like 10 uses km, or -unit for splits)
+             (a bare number like 10 uses -unit, which defaults to km)
 
 Examples:
   rabbit pace -time 45:30 -dist 10k
+  rabbit pace -pace 7:00 -unit mi -dist half
+  rabbit pace -pace 5:00 -time 30:00
   rabbit splits -pace 4:30 -dist half
   rabbit splits -pace 8:00 -unit mi -dist 26.2
   rabbit splits -pace 4:30 -dist marathon -every 5k
@@ -88,32 +93,64 @@ func run(args []string, out io.Writer) error {
 func runPace(args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("pace", flag.ContinueOnError)
 	timeStr := fs.String("time", "", "finish time, e.g. 45:30 or 1:45:00")
+	paceStr := fs.String("pace", "", "pace per -unit, e.g. 4:30")
 	distStr := fs.String("dist", "", "distance, e.g. 10k, 13.1mi, marathon")
+	unitStr := fs.String("unit", "km", "unit of -pace (and of a bare -dist number): km or mi")
 	mph := fs.Bool("mph", false, "also show speed in miles per hour")
 	md := fs.Bool("md", false, "print Markdown (e.g. for Obsidian) instead of styled text")
 	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
-	if *timeStr == "" || *distStr == "" {
-		return errors.New("pace needs both -time and -dist")
+	given := 0
+	for _, v := range []string{*timeStr, *paceStr, *distStr} {
+		if v != "" {
+			given++
+		}
+	}
+	if given != 2 {
+		return errors.New("pace needs exactly two of -time, -pace and -dist, and works out the third")
 	}
 
-	total, err := ParseClock(*timeStr)
+	unit, err := ParseUnit(*unitStr)
 	if err != nil {
 		return err
 	}
-	meters, err := ParseDistance(*distStr, Kilometer)
-	if err != nil {
-		return err
+	var total, pace time.Duration
+	var meters float64
+	if *timeStr != "" {
+		if total, err = ParseClock(*timeStr); err != nil {
+			return err
+		}
+	}
+	if *paceStr != "" {
+		if pace, err = ParseClock(*paceStr); err != nil {
+			return err
+		}
+	}
+	if *distStr != "" {
+		if meters, err = ParseDistance(*distStr, unit); err != nil {
+			return err
+		}
+	}
+
+	// Work out whichever of the three wasn't given.
+	switch {
+	case *paceStr == "":
+		pace = PaceFor(total, meters, unit)
+	case *timeStr == "":
+		total = TimeFor(pace, unit, meters)
+	default:
+		meters = DistanceFor(total, pace, unit)
 	}
 
 	r := Report{Summary: []Field{
-		{"Distance", fmtDist(meters, Kilometer) + " km · " + fmtDist(meters, Mile) + " mi"},
-		{"Time", FormatClock(total)},
-		{"Pace", FormatClock(PaceFor(total, meters, Kilometer)) + " /km · " + FormatClock(PaceFor(total, meters, Mile)) + " /mi"},
+		{Label: "Distance", Value: bothDist(meters), Calculated: *distStr == ""},
+		{Label: "Time", Value: FormatClock(total), Calculated: *timeStr == ""},
+		{Label: "Pace", Value: FormatClock(PaceFor(pace, unit.Meters, Kilometer)) + " /km · " +
+			FormatClock(PaceFor(pace, unit.Meters, Mile)) + " /mi", Calculated: *paceStr == ""},
 	}}
 	if *mph {
-		r.Summary = append(r.Summary, Field{"Speed", fmt.Sprintf("%.1f mph", MPH(PaceFor(total, meters, Mile), Mile))})
+		r.Summary = append(r.Summary, Field{Label: "Speed", Value: fmt.Sprintf("%.1f mph", MPH(pace, unit))})
 	}
 	return r.write(out, *md)
 }
@@ -195,11 +232,11 @@ func runSplits(args []string, out io.Writer) error {
 
 	km, mi := paces(pace)
 	r := Report{Summary: []Field{
-		{"Distance", fmtDist(meters, Kilometer) + " km · " + fmtDist(meters, Mile) + " mi"},
-		{"Target pace", km + " /km · " + mi + " /mi"},
+		{Label: "Distance", Value: bothDist(meters)},
+		{Label: "Target pace", Value: km + " /km · " + mi + " /mi"},
 	}}
 	if *mph {
-		r.Summary = append(r.Summary, Field{"Speed", speed(pace) + " mph"})
+		r.Summary = append(r.Summary, Field{Label: "Speed", Value: speed(pace) + " mph"})
 	}
 	if skew != 0 {
 		label, pct := "Negative split", *neg
@@ -209,11 +246,11 @@ func runSplits(args []string, out io.Writer) error {
 		firstKm, firstMi := paces(first.Pace)
 		lastKm, lastMi := paces(last.Pace)
 		r.Summary = append(r.Summary, Field{
-			fmt.Sprintf("%s %g%%", label, pct),
-			firstKm + " → " + lastKm + " /km · " + firstMi + " → " + lastMi + " /mi",
+			Label: fmt.Sprintf("%s %g%%", label, pct),
+			Value: firstKm + " → " + lastKm + " /km · " + firstMi + " → " + lastMi + " /mi",
 		})
 	}
-	r.Summary = append(r.Summary, Field{"Finish", FormatClock(last.Elapsed)})
+	r.Summary = append(r.Summary, Field{Label: "Finish", Value: FormatClock(last.Elapsed)})
 
 	// Work out where the halfway row goes. If halfway falls on a split
 	// boundary, that split is labelled instead of adding a row.
@@ -285,6 +322,11 @@ func currentVersion() string {
 		}
 	}
 	return version
+}
+
+// bothDist formats meters in km and miles, e.g. "10 km · 6.21 mi".
+func bothDist(meters float64) string {
+	return fmtDist(meters, Kilometer) + " km · " + fmtDist(meters, Mile) + " mi"
 }
 
 // fmtDist formats meters in unit with up to two decimals, trimming
