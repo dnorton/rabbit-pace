@@ -59,3 +59,27 @@ changelog:
     exclude:
       - "^docs:"
       - "^test:"
+
+# Homebrew cask in github.com/dnorton/homebrew-tap, so users can run
+#   brew install dnorton/tap/rabbit
+# Pushing to another repo needs HOMEBREW_TAP_TOKEN: a fine-grained token
+# with Contents read/write on dnorton/homebrew-tap only.
+homebrew_casks:
+  - name: rabbit
+    repository:
+      owner: dnorton
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    directory: Casks
+    homepage: https://github.com/dnorton/rabbit-pace
+    description: Running pace calculator with split tables, negative splits and treadmill mph
+    license: MIT
+    commit_msg_template: "rabbit {{ .Tag }}"
+    hooks:
+      post:
+        # The binary isn't signed by Apple, so macOS would refuse to run it
+        # ("rabbit is damaged") until the quarantine flag is removed.
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/rabbit"]
+          end
