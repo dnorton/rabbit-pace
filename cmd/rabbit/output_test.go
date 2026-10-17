@@ -22,11 +22,11 @@ func runOutput(t *testing.T, profile colorprofile.Profile, args ...string) strin
 }
 
 func TestSplitsMarkdown(t *testing.T) {
-	got := runOutput(t, colorprofile.TrueColor, "splits", "-pace", "4:00", "-dist", "3k", "-halfway", "-mph", "-md")
+	got := runOutput(t, colorprofile.TrueColor, "-pace", "4:00", "-dist", "3k", "-halfway", "-mph", "-md")
 	want := `- **Distance:** 3 km · 1.86 mi
-- **Target pace:** 4:00 /km · 6:26 /mi
+- **Time:** **12:00**
+- **Pace:** 4:00 /km · 6:26 /mi
 - **Speed:** 9.3 mph
-- **Finish:** 12:00
 
 | Split | Distance (km) | Pace /km | Pace /mi | MPH | Split Time | Total Time |
 |---:|---:|---:|---:|---:|---:|---:|
@@ -41,7 +41,7 @@ func TestSplitsMarkdown(t *testing.T) {
 }
 
 func TestPaceMarkdown(t *testing.T) {
-	got := runOutput(t, colorprofile.TrueColor, "pace", "-time", "45:30", "-dist", "10k", "-md")
+	got := runOutput(t, colorprofile.TrueColor, "-time", "45:30", "-dist", "10k", "-md", "-only")
 	want := `- **Distance:** 10 km · 6.21 mi
 - **Time:** 45:30
 - **Pace:** **4:33 /km · 7:19 /mi**
@@ -53,7 +53,7 @@ func TestPaceMarkdown(t *testing.T) {
 
 func TestStyledWithoutColor(t *testing.T) {
 	// NoTTY is what piped output gets: the table, with no escape codes.
-	got := runOutput(t, colorprofile.NoTTY, "splits", "-pace", "4:00", "-dist", "2k", "-neg", "5")
+	got := runOutput(t, colorprofile.NoTTY, "-pace", "4:00", "-dist", "2k", "-neg", "5")
 	if strings.Contains(got, "\x1b[") {
 		t.Errorf("piped output contains escape codes:\n%q", got)
 	}
@@ -68,13 +68,13 @@ func TestStyledTrendColors(t *testing.T) {
 	const green, yellow = "\x1b[32m", "\x1b[33m"
 
 	// A negative split starts slower (yellow) and finishes faster (green).
-	got := runOutput(t, colorprofile.ANSI, "splits", "-pace", "4:00", "-dist", "4k", "-neg", "5")
+	got := runOutput(t, colorprofile.ANSI, "-pace", "4:00", "-dist", "4k", "-neg", "5")
 	if !strings.Contains(got, green) || !strings.Contains(got, yellow) {
 		t.Errorf("negative split output should use green and yellow:\n%q", got)
 	}
 
 	// Even pace: every split is on target, so no trend colours.
-	got = runOutput(t, colorprofile.ANSI, "splits", "-pace", "4:00", "-dist", "4k")
+	got = runOutput(t, colorprofile.ANSI, "-pace", "4:00", "-dist", "4k")
 	if strings.Contains(got, green) || strings.Contains(got, yellow) {
 		t.Errorf("even pace output should not use trend colours:\n%q", got)
 	}
@@ -93,7 +93,7 @@ func TestPaceAnyTwo(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			args := append([]string{"pace", "-md"}, tt.args...)
+			args := append([]string{"-md", "-only"}, tt.args...)
 			got := runOutput(t, colorprofile.NoTTY, args...)
 			if !strings.Contains(got, tt.want+"\n") {
 				t.Errorf("output missing %q:\n%s", tt.want, got)
@@ -105,8 +105,8 @@ func TestPaceAnyTwo(t *testing.T) {
 	}
 
 	for _, args := range [][]string{
-		{"pace", "-dist", "10k"},
-		{"pace", "-time", "1:00:00", "-pace", "5:00", "-dist", "10k"},
+		{"-dist", "10k"},
+		{"-time", "1:00:00", "-pace", "5:00", "-dist", "10k"},
 	} {
 		err := run(args, io.Discard)
 		if err == nil || !strings.Contains(err.Error(), "exactly two") {

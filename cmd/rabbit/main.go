@@ -22,42 +22,41 @@ var version = "dev"
 
 const usage = `rabbit - running pace calculator
 
+Give any two of time, pace and distance. rabbit works out the third and
+prints a split table.
+
 Usage:
-  rabbit pace   two of: -time <time>  -pace <pace>  -dist <distance>
-                [-unit km|mi] [-mph] [-md]
-  rabbit splits (-pace <pace> | -time <time>) -dist <distance>
-                [-unit km|mi] [-every <distance>] [-halfway] [-mph] [-md]
-                [-neg <percent> | -pos <percent>]
+  rabbit [two of: -time <time>  -pace <pace>  -dist <distance>]
+         [-unit km|mi] [-every <distance>] [-halfway]
+         [-neg <percent> | -pos <percent>] [-mph] [-md] [-only]
   rabbit version
 
-Commands:
-  pace     Give any two of time, pace and distance; rabbit works out the
-           third (pace from time + distance, finish time from pace +
-           distance, or distance from time + pace).
-  splits   Print a split table for a distance run at a given pace, or the
-           pace needed for a finish time. -halfway adds a halfway row.
-           -neg 5 starts 5% slower and finishes 5% faster (negative split);
-           -pos 5 does the reverse. The finish time stays the same.
-  version  Print the version.
-
-  -mph adds speed in miles per hour (for treadmills) to either command.
-  -md prints Markdown instead, ready to paste into Obsidian or a README.
+Flags:
+  -time      finish time
+  -pace      pace per -unit
+  -dist      distance
+  -unit      km or mi (default km): the unit of -pace, of a bare -dist or
+             -every number, and of the split table
+  -every     split length, e.g. 5k or 1mi (default: one -unit)
+  -halfway   add a row at the halfway point
+  -neg 5     negative split: start 5% slower, finish 5% faster
+  -pos 5     positive split: start 5% faster, finish 5% slower
+             (the finish time stays the same either way)
+  -mph       add speed in miles per hour, for treadmills
+  -md        print Markdown, ready to paste into Obsidian or a README
+  -only      print just the summary, without the split table
 
 Formats:
   time/pace  hh:mm:ss, mm:ss, or Go durations like 45m30s
-  distance   10k, 5km, 13.1mi, 800m, half, marathon
-             (a bare number like 10 uses -unit, which defaults to km)
+  distance   10k, 5km, 13.1mi, 800m, half, marathon, or a bare number in -unit
 
 Examples:
-  rabbit pace -time 45:30 -dist 10k
-  rabbit pace -pace 7:00 -unit mi -dist half
-  rabbit pace -pace 5:00 -time 30:00
-  rabbit splits -pace 4:30 -dist half
-  rabbit splits -pace 8:00 -unit mi -dist 26.2
-  rabbit splits -pace 4:30 -dist marathon -every 5k
-  rabbit splits -pace 4:30 -dist half -neg 5
-  rabbit splits -time 3:00:00 -dist marathon -every 5k -halfway -neg 2
-  rabbit splits -pace 7:00 -unit mi -dist 10k -md
+  rabbit -time 45:30 -dist 10k -only
+  rabbit -pace 7:00 -unit mi -dist half
+  rabbit -pace 5:00 -time 30:00
+  rabbit -pace 4:30 -dist marathon -every 5k
+  rabbit -time 3:00:00 -dist marathon -every 5k -halfway -neg 2
+  rabbit -pace 7:00 -unit mi -dist 10k -md
 `
 
 func main() {
@@ -76,31 +75,49 @@ func run(args []string, out io.Writer) error {
 		return nil
 	}
 	switch args[0] {
-	case "pace":
-		return runPace(args[1:], out)
-	case "splits":
-		return runSplits(args[1:], out)
 	case "version", "-version", "--version":
 		fmt.Fprintln(out, "rabbit", currentVersion())
 		return nil
 	case "help", "-h", "-help", "--help":
 		fmt.Fprint(out, usage)
 		return nil
+	case "pace", "splits":
+		// Removed in v0.4.0; point anyone with old commands at the new form.
+		hint := "rabbit " + strings.Join(args[1:], " ")
+		if args[0] == "pace" {
+			hint += " -only"
+		}
+		return fmt.Errorf("the %q command was removed in v0.4.0; drop it and use flags directly, e.g. %s", args[0], hint)
 	}
-	return fmt.Errorf("unknown command %q (run 'rabbit help')", args[0])
+	return runCalc(args, out)
 }
 
-func runPace(args []string, out io.Writer) error {
-	fs := flag.NewFlagSet("pace", flag.ContinueOnError)
-	timeStr := fs.String("time", "", "finish time, e.g. 45:30 or 1:45:00")
+// runCalc works out whichever of time, pace and distance wasn't given,
+// then prints a summary and (unless -only) a split table.
+func runCalc(args []string, out io.Writer) error {
+	fs := flag.NewFlagSet("rabbit", flag.ContinueOnError)
+	timeStr := fs.String("time", "", "finish time, e.g. 45:30 or 3:00:00")
 	paceStr := fs.String("pace", "", "pace per -unit, e.g. 4:30")
 	distStr := fs.String("dist", "", "distance, e.g. 10k, 13.1mi, marathon")
-	unitStr := fs.String("unit", "km", "unit of -pace (and of a bare -dist number): km or mi")
-	mph := fs.Bool("mph", false, "also show speed in miles per hour")
-	md := fs.Bool("md", false, "print Markdown (e.g. for Obsidian) instead of styled text")
+	unitStr := fs.String("unit", "km", "km or mi: unit of -pace, of bare distances, and of the splits")
+	everyStr := fs.String("every", "", "split length, e.g. 5k or 1mi (default: one -unit)")
+	halfway := fs.Bool("halfway", false, "add a row at the halfway point")
+	neg := fs.Float64("neg", 0, "negative split: start this percent slower, finish this percent faster")
+	pos := fs.Float64("pos", 0, "positive split: start this percent faster, finish this percent slower")
+	mph := fs.Bool("mph", false, "add speed in miles per hour")
+	md := fs.Bool("md", false, "print Markdown (e.g. for Obsidian) instead of styled output")
+	only := fs.Bool("only", false, "print just the summary, without the split table")
+	// Report flag errors ourselves, as one line, rather than letting the
+	// flag package print them along with the whole usage text.
+	fs.SetOutput(io.Discard)
 	if err := parseFlags(fs, args); err != nil {
+		if errors.Is(err, flag.ErrHelp) { // -h anywhere
+			fmt.Fprint(out, usage)
+			return nil
+		}
 		return err
 	}
+
 	given := 0
 	for _, v := range []string{*timeStr, *paceStr, *distStr} {
 		if v != "" {
@@ -108,8 +125,20 @@ func runPace(args []string, out io.Writer) error {
 		}
 	}
 	if given != 2 {
-		return errors.New("pace needs exactly two of -time, -pace and -dist, and works out the third")
+		return errors.New("give exactly two of -time, -pace and -dist; rabbit works out the third")
 	}
+	if *only && (*everyStr != "" || *halfway) {
+		return errors.New("-every and -halfway change the split table, which -only leaves out")
+	}
+	if *neg != 0 && *pos != 0 {
+		return errors.New("use either -neg or -pos, not both")
+	}
+	for _, p := range []float64{*neg, *pos} {
+		if p < 0 || p > 50 {
+			return fmt.Errorf("split percent %g must be between 0 and 50", p)
+		}
+	}
+	skew := (*neg - *pos) / 100
 
 	unit, err := ParseUnit(*unitStr)
 	if err != nil {
@@ -132,6 +161,12 @@ func runPace(args []string, out io.Writer) error {
 			return err
 		}
 	}
+	interval := unit.Meters
+	if *everyStr != "" {
+		if interval, err = ParseDistance(*everyStr, unit); err != nil {
+			return err
+		}
+	}
 
 	// Work out whichever of the three wasn't given.
 	switch {
@@ -141,71 +176,6 @@ func runPace(args []string, out io.Writer) error {
 		total = TimeFor(pace, unit, meters)
 	default:
 		meters = DistanceFor(total, pace, unit)
-	}
-
-	r := Report{Summary: []Field{
-		{Label: "Distance", Value: bothDist(meters), Calculated: *distStr == ""},
-		{Label: "Time", Value: FormatClock(total), Calculated: *timeStr == ""},
-		{Label: "Pace", Value: FormatClock(PaceFor(pace, unit.Meters, Kilometer)) + " /km · " +
-			FormatClock(PaceFor(pace, unit.Meters, Mile)) + " /mi", Calculated: *paceStr == ""},
-	}}
-	if *mph {
-		r.Summary = append(r.Summary, Field{Label: "Speed", Value: fmt.Sprintf("%.1f mph", MPH(pace, unit))})
-	}
-	return r.write(out, *md)
-}
-
-func runSplits(args []string, out io.Writer) error {
-	fs := flag.NewFlagSet("splits", flag.ContinueOnError)
-	paceStr := fs.String("pace", "", "pace per unit, e.g. 4:30")
-	timeStr := fs.String("time", "", "finish time instead of -pace, e.g. 3:00:00")
-	distStr := fs.String("dist", "", "distance, e.g. 10k, 13.1mi, marathon")
-	unitStr := fs.String("unit", "km", "unit of the pace and splits: km or mi")
-	everyStr := fs.String("every", "", "split length, e.g. 5k or 1mi (default: one -unit)")
-	halfway := fs.Bool("halfway", false, "add a row at the halfway point")
-	mph := fs.Bool("mph", false, "add a speed column in miles per hour")
-	neg := fs.Float64("neg", 0, "negative split: start this percent slower, finish this percent faster")
-	pos := fs.Float64("pos", 0, "positive split: start this percent faster, finish this percent slower")
-	md := fs.Bool("md", false, "print Markdown (e.g. for Obsidian) instead of a styled table")
-	if err := parseFlags(fs, args); err != nil {
-		return err
-	}
-	if (*paceStr == "") == (*timeStr == "") || *distStr == "" {
-		return errors.New("splits needs -dist and one of -pace or -time")
-	}
-	if *neg != 0 && *pos != 0 {
-		return errors.New("use either -neg or -pos, not both")
-	}
-	for _, p := range []float64{*neg, *pos} {
-		if p < 0 || p > 50 {
-			return fmt.Errorf("split percent %g must be between 0 and 50", p)
-		}
-	}
-	skew := (*neg - *pos) / 100
-
-	unit, err := ParseUnit(*unitStr)
-	if err != nil {
-		return err
-	}
-	meters, err := ParseDistance(*distStr, unit)
-	if err != nil {
-		return err
-	}
-	var pace time.Duration
-	if *timeStr != "" {
-		total, err := ParseClock(*timeStr)
-		if err != nil {
-			return err
-		}
-		pace = PaceFor(total, meters, unit)
-	} else if pace, err = ParseClock(*paceStr); err != nil {
-		return err
-	}
-	interval := unit.Meters
-	if *everyStr != "" {
-		if interval, err = ParseDistance(*everyStr, unit); err != nil {
-			return err
-		}
 	}
 
 	splits := Splits(pace, unit, interval, meters, skew)
@@ -232,8 +202,9 @@ func runSplits(args []string, out io.Writer) error {
 
 	km, mi := paces(pace)
 	r := Report{Summary: []Field{
-		{Label: "Distance", Value: bothDist(meters)},
-		{Label: "Target pace", Value: km + " /km · " + mi + " /mi"},
+		{Label: "Distance", Value: bothDist(meters), Calculated: *distStr == ""},
+		{Label: "Time", Value: FormatClock(total), Calculated: *timeStr == ""},
+		{Label: "Pace", Value: km + " /km · " + mi + " /mi", Calculated: *paceStr == ""},
 	}}
 	if *mph {
 		r.Summary = append(r.Summary, Field{Label: "Speed", Value: speed(pace) + " mph"})
@@ -250,7 +221,9 @@ func runSplits(args []string, out io.Writer) error {
 			Value: firstKm + " → " + lastKm + " /km · " + firstMi + " → " + lastMi + " /mi",
 		})
 	}
-	r.Summary = append(r.Summary, Field{Label: "Finish", Value: FormatClock(last.Elapsed)})
+	if *only {
+		return r.write(out, *md)
+	}
 
 	// Work out where the halfway row goes. If halfway falls on a split
 	// boundary, that split is labelled instead of adding a row.
@@ -301,7 +274,10 @@ func runSplits(args []string, out io.Writer) error {
 // "-every 2 miles -mph" would quietly ignore both "miles" and "-mph".
 func parseFlags(fs *flag.FlagSet, args []string) error {
 	if err := fs.Parse(args); err != nil {
-		return err
+		if errors.Is(err, flag.ErrHelp) {
+			return err
+		}
+		return fmt.Errorf("%w (run 'rabbit -h' for help)", err)
 	}
 	if fs.NArg() > 0 {
 		return fmt.Errorf("unexpected argument %q (quote values that contain spaces, e.g. -every \"2 miles\", or write 2mi)", fs.Arg(0))
