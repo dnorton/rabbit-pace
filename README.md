@@ -32,7 +32,17 @@ turned off automatically when output is piped or `NO_COLOR` is set.
 
 ## Install
 
-### Linux and macOS
+### Homebrew (macOS and Linux)
+
+```bash
+brew install dnorton/tap/rabbit
+```
+
+Upgrade with `brew upgrade rabbit`. The binary isn't signed by Apple, so the
+cask clears macOS's quarantine flag after installing; otherwise macOS would
+report that rabbit "is damaged and can't be opened".
+
+### Install script (Linux and macOS)
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/dnorton/rabbit-pace/main/install.sh | sh
