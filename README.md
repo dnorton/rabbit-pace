@@ -4,11 +4,11 @@ A command-line running pace calculator.
 Named after the "rabbits": the pacers who set the tempo in a race.
 
 ```
-$ rabbit splits -time 3:00:00 -dist marathon -every 5k -halfway -neg 2
+$ rabbit -time 3:00:00 -dist marathon -every 5k -halfway -neg 2
 Distance           42.2 km · 26.22 mi
-Target pace        4:16 /km · 6:52 /mi
+Time               3:00:00
+Pace               4:16 /km · 6:52 /mi
 Negative split 2%  4:21 → 4:11 /km · 7:00 → 6:43 /mi
-Finish             3:00:00
 
 ╭───────┬───────────────┬──────────┬──────────┬────────────┬────────────╮
 │ Split │ Distance (km) │ Pace /km │ Pace /mi │ Split Time │ Total Time │
@@ -82,7 +82,7 @@ sudo pacman -U ./rabbit-pace_<version>_linux_amd64.pkg.tar.zst
 go install github.com/dnorton/rabbit-pace/cmd/rabbit@latest
 
 # Docker
-docker run --rm ghcr.io/dnorton/rabbit-pace splits -pace 4:30 -dist 10k
+docker run --rm ghcr.io/dnorton/rabbit-pace -pace 4:30 -dist 10k
 ```
 
 The Linux package is called `rabbit-pace` (the command is still `rabbit`)
@@ -90,77 +90,84 @@ because Debian and Ubuntu already have an unrelated `rabbit` package.
 
 ## Usage
 
-### Pace, finish time or distance
+Give any two of `-time`, `-pace` and `-dist`. rabbit works out the third
+(highlighted in the terminal) and prints a split table. `-unit km|mi` sets
+the unit of `-pace` and of the splits (km by default).
 
-Give `rabbit pace` any two of `-time`, `-pace` and `-dist`, and it works out
-the third, highlighted in the terminal. `-unit km|mi` sets the unit of
-`-pace` (km by default).
+```bash
+# Finish time and splits for a pace and distance
+rabbit -pace 4:30 -dist half
+rabbit -pace 8:00 -unit mi -dist 26.2
+
+# Pace and splits for a goal time
+rabbit -time 3:00:00 -dist marathon
+
+# How far you'll get, and splits, for a time and pace
+rabbit -pace 5:00 -time 30:00
+
+# Custom split length with -every (defaults to one -unit)
+rabbit -pace 4:30 -dist marathon -every 5k
+
+# Negative split: start 5% slower, finish 5% faster, same finish time
+rabbit -pace 4:30 -dist half -neg 5
+
+# Positive split: start 3% faster, finish 3% slower
+rabbit -pace 8:00 -unit mi -dist 10k -pos 3
+
+# Add a halfway row
+rabbit -time 3:00:00 -dist marathon -every 5k -halfway -neg 2
+
+# Add treadmill speed in mph
+rabbit -pace 7:00 -unit mi -dist 5k -mph
+```
+
+The split table shows pace in both min/km and min/mi. Run `rabbit -h` for
+every flag.
+
+### Just the numbers: `-only`
+
+`-only` prints the summary without the split table:
 
 ```
 # Pace from time + distance
-$ rabbit pace -time 45:30 -dist 10k
+$ rabbit -time 45:30 -dist 10k -only
 Distance  10 km · 6.21 mi
 Time      45:30
 Pace      4:33 /km · 7:19 /mi
 
 # Finish time from pace + distance
-$ rabbit pace -pace 7:00 -unit mi -dist half -mph
+$ rabbit -pace 7:00 -unit mi -dist half -only -mph
 Distance  21.1 km · 13.11 mi
 Time      1:31:46
 Pace      4:21 /km · 7:00 /mi
 Speed     8.6 mph
 
 # Distance from pace + time
-$ rabbit pace -pace 5:00 -time 30:00
+$ rabbit -pace 5:00 -time 30:00 -only
 Distance  6 km · 3.73 mi
 Time      30:00
 Pace      5:00 /km · 8:03 /mi
 ```
 
-### Split tables
-
-```bash
-# Split table for a distance at a given pace (-unit defaults to km)
-rabbit splits -pace 4:30 -dist half
-rabbit splits -pace 8:00 -unit mi -dist 26.2
-
-# Custom split length with -every (defaults to one -unit)
-rabbit splits -pace 4:30 -dist marathon -every 5k
-
-# Negative split: start 5% slower, finish 5% faster, same finish time
-rabbit splits -pace 4:30 -dist half -neg 5
-
-# Positive split: start 3% faster, finish 3% slower
-rabbit splits -pace 8:00 -unit mi -dist 10k -pos 3
-
-# Use a finish time instead of a pace, and add a halfway row
-rabbit splits -time 3:00:00 -dist marathon -every 5k -halfway -neg 2
-
-# Add treadmill speed in mph (works with pace too)
-rabbit splits -pace 7:00 -unit mi -dist 5k -mph
-```
-
-The split table shows pace in both min/km and min/mi.
-
 ### Markdown (Obsidian, READMEs)
 
-Add `-md` to either command to print Markdown instead: the summary as a list
-(with the calculated value in bold) and the splits as a table that renders
-properly when pasted into Obsidian or any Markdown editor.
+Add `-md` to print Markdown instead: the summary as a list (with the
+calculated value in bold) and the splits as a table that renders properly
+when pasted into Obsidian or any Markdown editor.
 
 ```bash
 # Straight to the clipboard
-rabbit splits -pace 7:00 -unit mi -dist 5k -halfway -md | wl-copy          # Wayland
-rabbit splits -pace 7:00 -unit mi -dist 5k -halfway -md | xclip -sel clip  # X11
-rabbit splits -pace 7:00 -unit mi -dist 5k -halfway -md | pbcopy           # macOS
+rabbit -pace 7:00 -unit mi -dist 5k -halfway -md | wl-copy          # Wayland
+rabbit -pace 7:00 -unit mi -dist 5k -halfway -md | xclip -sel clip  # X11
+rabbit -pace 7:00 -unit mi -dist 5k -halfway -md | pbcopy           # macOS
 ```
 
 That prints:
 
 ```markdown
 - **Distance:** 5 km · 3.11 mi
-- **Target pace:** 4:21 /km · 7:00 /mi
-- **Finish:** 21:45
+- **Time:** **21:45**
+- **Pace:** 4:21 /km · 7:00 /mi
 
 | Split | Distance (mi) | Pace /km | Pace /mi | Split Time | Total Time |
 |---:|---:|---:|---:|---:|---:|
@@ -174,8 +181,8 @@ That prints:
 which renders as:
 
 - **Distance:** 5 km · 3.11 mi
-- **Target pace:** 4:21 /km · 7:00 /mi
-- **Finish:** 21:45
+- **Time:** **21:45**
+- **Pace:** 4:21 /km · 7:00 /mi
 
 | Split | Distance (mi) | Pace /km | Pace /mi | Split Time | Total Time |
 |---:|---:|---:|---:|---:|---:|
@@ -195,7 +202,7 @@ number in `-unit` (km by default). Quote distances that contain a space
 ## Development
 
 ```bash
-go run ./cmd/rabbit splits -pace 4:30 -dist 10k   # run from source
+go run ./cmd/rabbit -pace 4:30 -dist 10k          # run from source
 go test ./...                                     # run the tests
 go build ./cmd/rabbit                             # creates ./rabbit
 docker build -t rabbit .                          # build the Docker image
