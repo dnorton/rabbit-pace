@@ -28,7 +28,7 @@ prints a split table.
 Usage:
   rabbit [two of: -time <time>  -pace <pace>  -dist <distance>]
          [-unit km|mi] [-every <distance>] [-halfway]
-         [-neg <percent> | -pos <percent>] [-mph] [-md] [-only]
+         [-neg <percent> | -pos <percent>] [-mph] [-kph] [-md] [-only]
   rabbit version
 
 Flags:
@@ -43,6 +43,7 @@ Flags:
   -pos 5     positive split: start 5% faster, finish 5% slower
              (the finish time stays the same either way)
   -mph       add speed in miles per hour, for treadmills
+  -kph       add speed in kilometers per hour, for treadmills
   -md        print Markdown, ready to paste into Obsidian or a README
   -only      print just the summary, without the split table
 
@@ -105,6 +106,7 @@ func runCalc(args []string, out io.Writer) error {
 	neg := fs.Float64("neg", 0, "negative split: start this percent slower, finish this percent faster")
 	pos := fs.Float64("pos", 0, "positive split: start this percent faster, finish this percent slower")
 	mph := fs.Bool("mph", false, "add speed in miles per hour")
+	kph := fs.Bool("kph", false, "add speed in kilometers per hour")
 	md := fs.Bool("md", false, "print Markdown (e.g. for Obsidian) instead of styled output")
 	only := fs.Bool("only", false, "print just the summary, without the split table")
 	// Report flag errors ourselves, as one line, rather than letting the
@@ -185,9 +187,8 @@ func runCalc(args []string, out io.Writer) error {
 	paces := func(p time.Duration) (string, string) {
 		return FormatClock(PaceFor(p, unit.Meters, Kilometer)), FormatClock(PaceFor(p, unit.Meters, Mile))
 	}
-	speed := func(p time.Duration) string {
-		return fmt.Sprintf("%.1f", MPH(p, unit))
-	}
+	mphOf := func(p time.Duration) string { return fmt.Sprintf("%.1f", MPH(p, unit)) }
+	kphOf := func(p time.Duration) string { return fmt.Sprintf("%.1f", KPH(p, unit)) }
 	// trend compares a split's pace to the target, ignoring differences
 	// too small to show once rounded to the second.
 	trend := func(p time.Duration) int {
@@ -206,8 +207,15 @@ func runCalc(args []string, out io.Writer) error {
 		{Label: "Time", Value: FormatClock(total), Calculated: *timeStr == ""},
 		{Label: "Pace", Value: km + " /km · " + mi + " /mi", Calculated: *paceStr == ""},
 	}}
+	var speeds []string
 	if *mph {
-		r.Summary = append(r.Summary, Field{Label: "Speed", Value: speed(pace) + " mph"})
+		speeds = append(speeds, mphOf(pace)+" mph")
+	}
+	if *kph {
+		speeds = append(speeds, kphOf(pace)+" km/h")
+	}
+	if len(speeds) > 0 {
+		r.Summary = append(r.Summary, Field{Label: "Speed", Value: strings.Join(speeds, " · ")})
 	}
 	if skew != 0 {
 		label, pct := "Negative split", *neg
@@ -239,8 +247,12 @@ func runCalc(args []string, out io.Writer) error {
 		TrendCols: []int{2, 3},
 	}
 	if *mph {
+		t.TrendCols = append(t.TrendCols, len(t.Headers))
 		t.Headers = append(t.Headers, "MPH")
-		t.TrendCols = append(t.TrendCols, 4)
+	}
+	if *kph {
+		t.TrendCols = append(t.TrendCols, len(t.Headers))
+		t.Headers = append(t.Headers, "KPH")
 	}
 	t.Headers = append(t.Headers, "Split Time", "Total Time")
 
@@ -249,7 +261,10 @@ func runCalc(args []string, out io.Writer) error {
 		km, mi := paces(s.Pace)
 		cells := []string{label, fmtDist(s.Meters, unit), km, mi}
 		if *mph {
-			cells = append(cells, speed(s.Pace))
+			cells = append(cells, mphOf(s.Pace))
+		}
+		if *kph {
+			cells = append(cells, kphOf(s.Pace))
 		}
 		cells = append(cells, splitTime, FormatClock(s.Elapsed))
 		return Row{Cells: cells, Half: isHalf, Trend: trend(s.Pace)}

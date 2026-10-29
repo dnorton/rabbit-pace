@@ -132,6 +132,11 @@ func MPH(pace time.Duration, u Unit) float64 {
 	return u.Meters / Mile.Meters / pace.Hours()
 }
 
+// KPH converts a pace (time per unit u) to a speed in kilometers per hour.
+func KPH(pace time.Duration, u Unit) float64 {
+	return u.Meters / Kilometer.Meters / pace.Hours()
+}
+
 // Split is one row of a splits table.
 type Split struct {
 	Number  int
