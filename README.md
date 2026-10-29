@@ -127,8 +127,10 @@ rabbit -pace 8:00 -unit mi -dist 10k -pos 3
 # Add a halfway row
 rabbit -time 3:00:00 -dist marathon -every 5k -halfway -neg 2
 
-# Add treadmill speed in mph
+# Add treadmill speed in mph, km/h, or both
 rabbit -pace 7:00 -unit mi -dist 5k -mph
+rabbit -pace 4:30 -dist 10k -kph
+rabbit -pace 4:30 -dist 10k -mph -kph
 ```
 
 The split table shows pace in both min/km and min/mi. Run `rabbit -h` for

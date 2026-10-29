@@ -114,3 +114,30 @@ func TestPaceAnyTwo(t *testing.T) {
 		}
 	}
 }
+
+func TestSpeedFlags(t *testing.T) {
+	// Both flags: one Speed line with both values, and MPH then KPH columns.
+	got := runOutput(t, colorprofile.NoTTY, "-pace", "5:00", "-dist", "2k", "-mph", "-kph", "-md")
+	for _, want := range []string{
+		"- **Speed:** 7.5 mph · 12.0 km/h\n",
+		"| Split | Distance (km) | Pace /km | Pace /mi | MPH | KPH | Split Time | Total Time |\n",
+		"| 1 | 1 | 5:00 | 8:03 | 7.5 | 12.0 | 5:00 | 5:00 |\n",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("output missing %q:\n%s", want, got)
+		}
+	}
+
+	// -kph alone.
+	got = runOutput(t, colorprofile.NoTTY, "-pace", "5:00", "-dist", "2k", "-kph", "-md")
+	if !strings.Contains(got, "- **Speed:** 12.0 km/h\n") || strings.Contains(got, "MPH") {
+		t.Errorf("-kph alone should show only km/h:\n%s", got)
+	}
+
+	// KPH cells get trend colours too: the last split of a negative split
+	// is faster than target, so its speed is green.
+	got = runOutput(t, colorprofile.ANSI, "-pace", "4:00", "-dist", "3k", "-neg", "5", "-kph")
+	if !strings.Contains(got, "\x1b[32m15.8") {
+		t.Errorf("last split's KPH should be green:\n%q", got)
+	}
+}

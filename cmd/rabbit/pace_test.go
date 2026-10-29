@@ -223,3 +223,20 @@ func TestTimeForAndDistanceFor(t *testing.T) {
 		t.Errorf("round trip pace = %v, want 7m", got)
 	}
 }
+
+func TestKPH(t *testing.T) {
+	tests := []struct {
+		pace time.Duration
+		u    Unit
+		want float64
+	}{
+		{5 * time.Minute, Kilometer, 12},
+		{4 * time.Minute, Kilometer, 15},
+		{7 * time.Minute, Mile, 60.0 / 7 * 1.609344},
+	}
+	for _, tt := range tests {
+		if got := KPH(tt.pace, tt.u); math.Abs(got-tt.want) > 1e-9 {
+			t.Errorf("KPH(%v /%s) = %v, want %v", tt.pace, tt.u.Name, got, tt.want)
+		}
+	}
+}
