@@ -10,6 +10,7 @@ import (
 	"math"
 	"os"
 	"runtime/debug"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -29,6 +30,7 @@ Usage:
   rabbit [two of: -time <time>  -pace <pace>  -dist <distance>]
          [-unit km|mi] [-every <distance>] [-halfway]
          [-neg <percent> | -pos <percent>] [-mph] [-kph] [-md] [-only]
+         [-fuel <time|distance>] [-vdot] [-equiv]
   rabbit version
 
 Flags:
@@ -39,6 +41,8 @@ Flags:
              -every number, and of the split table
   -every     split length, e.g. 5k or 1mi (default: one -unit)
   -halfway   add a row at the halfway point
+  -fuel      add a row for each fuel stop (gel, drink), every so much
+             time (30min, 1h, 45:00) or distance (8k, 5mi)
   -neg 5     negative split: start 5% slower, finish 5% faster
   -pos 5     positive split: start 5% faster, finish 5% slower
              (the finish time stays the same either way)
@@ -46,6 +50,10 @@ Flags:
   -kph       add speed in kilometers per hour, for treadmills
   -md        print Markdown, ready to paste into Obsidian or a README
   -only      print just the summary, without the split table
+  -vdot      add the VDOT fitness score (Jack Daniels) for a race result
+             between 1500 m and the marathon
+  -equiv     show predicted times at other race distances, from VDOT,
+             instead of the split table
 
 Formats:
   time/pace  hh:mm:ss, mm:ss, or Go durations like 45m30s
@@ -58,6 +66,8 @@ Examples:
   rabbit -pace 4:30 -dist marathon -every 5k
   rabbit -time 3:00:00 -dist marathon -every 5k -halfway -neg 2
   rabbit -pace 7:00 -unit mi -dist 10k -md
+  rabbit -time 3:30:00 -dist marathon -every 5k -fuel 30min
+  rabbit -time 45:30 -dist 10k -equiv
 `
 
 func main() {
@@ -109,6 +119,9 @@ func runCalc(args []string, out io.Writer) error {
 	kph := fs.Bool("kph", false, "add speed in kilometers per hour")
 	md := fs.Bool("md", false, "print Markdown (e.g. for Obsidian) instead of styled output")
 	only := fs.Bool("only", false, "print just the summary, without the split table")
+	fuelStr := fs.String("fuel", "", "add a fuel row every so often, e.g. 30min (time) or 8k (distance)")
+	vdot := fs.Bool("vdot", false, "add the VDOT fitness score for this race result")
+	equiv := fs.Bool("equiv", false, "show equivalent times at other race distances instead of splits")
 	// Report flag errors ourselves, as one line, rather than letting the
 	// flag package print them along with the whole usage text.
 	fs.SetOutput(io.Discard)
@@ -129,8 +142,11 @@ func runCalc(args []string, out io.Writer) error {
 	if given != 2 {
 		return errors.New("give exactly two of -time, -pace and -dist; rabbit works out the third")
 	}
-	if *only && (*everyStr != "" || *halfway) {
-		return errors.New("-every and -halfway change the split table, which -only leaves out")
+	if *only && (*everyStr != "" || *halfway || *fuelStr != "") {
+		return errors.New("-every, -halfway and -fuel change the split table, which -only leaves out")
+	}
+	if *equiv && (*only || *everyStr != "" || *halfway || *fuelStr != "") {
+		return errors.New("-equiv replaces the split table, so it can't be used with -only, -every, -halfway or -fuel")
 	}
 	if *neg != 0 && *pos != 0 {
 		return errors.New("use either -neg or -pos, not both")
@@ -160,6 +176,12 @@ func runCalc(args []string, out io.Writer) error {
 	}
 	if *distStr != "" {
 		if meters, err = ParseDistance(*distStr, unit); err != nil {
+			return err
+		}
+	}
+	var fuel FuelEvery
+	if *fuelStr != "" {
+		if fuel, err = ParseFuel(*fuelStr, unit); err != nil {
 			return err
 		}
 	}
@@ -229,18 +251,29 @@ func runCalc(args []string, out io.Writer) error {
 			Value: firstKm + " → " + lastKm + " /km · " + firstMi + " → " + lastMi + " /mi",
 		})
 	}
+	if *vdot || *equiv {
+		if err := checkVDOTRange(meters); err != nil {
+			return err
+		}
+		score := VDOT(meters, total)
+		r.Summary = append(r.Summary, Field{Label: "VDOT", Value: fmt.Sprintf("%.1f", score)})
+		if *equiv {
+			r.Table = equivTable(score, meters, total, unit, *mph, *kph)
+			return r.write(out, *md)
+		}
+	}
 	if *only {
 		return r.write(out, *md)
 	}
 
-	// Work out where the halfway row goes. If halfway falls on a split
-	// boundary, that split is labelled instead of adding a row.
-	halfIdx, halfOnSplit := -1, false
-	var half Split
+	// Marker rows (halfway, fuel stops) sit between the splits. One that
+	// falls on a split boundary labels that split instead of adding a row.
+	var markers []Marker
 	if *halfway {
-		half, halfIdx = SplitAt(splits, meters/2)
-		halfOnSplit = math.Abs(splits[halfIdx].Meters-meters/2) < 0.5
+		markers = append(markers, Marker{Label: "Half", Short: "half", Meters: meters / 2})
 	}
+	markers = append(markers, fuelMarkers(fuel, splits)...)
+	sortMarkers(markers)
 
 	t := &Table{
 		Headers:   []string{"Split", "Distance (" + unit.Name + ")", "Pace /km", "Pace /mi"},
@@ -256,8 +289,8 @@ func runCalc(args []string, out io.Writer) error {
 	}
 	t.Headers = append(t.Headers, "Split Time", "Total Time")
 
-	// row builds a table row; splitTime is empty for the halfway row.
-	row := func(label string, s Split, splitTime string, isHalf bool) Row {
+	// row builds a table row; splitTime is empty for marker rows.
+	row := func(label string, s Split, splitTime string, highlight bool) Row {
 		km, mi := paces(s.Pace)
 		cells := []string{label, fmtDist(s.Meters, unit), km, mi}
 		if *mph {
@@ -267,18 +300,25 @@ func runCalc(args []string, out io.Writer) error {
 			cells = append(cells, kphOf(s.Pace))
 		}
 		cells = append(cells, splitTime, FormatClock(s.Elapsed))
-		return Row{Cells: cells, Half: isHalf, Trend: trend(s.Pace)}
+		return Row{Cells: cells, Highlight: highlight, Trend: trend(s.Pace)}
 	}
-	for i, s := range splits {
-		label := strconv.Itoa(s.Number)
-		if i == halfIdx {
-			if halfOnSplit {
-				label += " (half)"
-			} else {
-				t.Rows = append(t.Rows, row("Half", half, "", true))
+	next := 0 // the first marker not yet placed
+	for _, s := range splits {
+		var tags []string
+		for ; next < len(markers) && markers[next].Meters <= s.Meters+0.5; next++ {
+			m := markers[next]
+			if math.Abs(s.Meters-m.Meters) < 0.5 {
+				tags = append(tags, m.Short)
+				continue
 			}
+			at, _ := SplitAt(splits, m.Meters)
+			t.Rows = append(t.Rows, row(m.Label, at, "", true))
 		}
-		t.Rows = append(t.Rows, row(label, s, FormatClock(s.Time), i == halfIdx && halfOnSplit))
+		label := strconv.Itoa(s.Number)
+		if len(tags) > 0 {
+			label += " (" + strings.Join(tags, ", ") + ")"
+		}
+		t.Rows = append(t.Rows, row(label, s, FormatClock(s.Time), len(tags) > 0))
 	}
 	r.Table = t
 	return r.write(out, *md)
@@ -315,6 +355,51 @@ func currentVersion() string {
 	return version
 }
 
+// equivTable lists predicted times for a runner with the given VDOT at
+// the standard race distances. The race they ran (meters in total) is
+// highlighted, and added as its own row if it isn't a standard distance.
+func equivTable(score, meters float64, total time.Duration, unit Unit, mph, kph bool) *Table {
+	t := &Table{Headers: []string{"Race", "Distance (" + unit.Name + ")", "Time", "Pace /km", "Pace /mi"}}
+	if mph {
+		t.Headers = append(t.Headers, "MPH")
+	}
+	if kph {
+		t.Headers = append(t.Headers, "KPH")
+	}
+	row := func(name string, m float64, d time.Duration, ran bool) Row {
+		p := PaceFor(d, m, unit)
+		cells := []string{
+			name, fmtDist(m, unit), FormatClock(d),
+			FormatClock(PaceFor(d, m, Kilometer)), FormatClock(PaceFor(d, m, Mile)),
+		}
+		if mph {
+			cells = append(cells, fmt.Sprintf("%.1f", MPH(p, unit)))
+		}
+		if kph {
+			cells = append(cells, fmt.Sprintf("%.1f", KPH(p, unit)))
+		}
+		return Row{Cells: cells, Highlight: ran}
+	}
+
+	added := false
+	for _, race := range equivRaces {
+		ran := math.Abs(race.Meters-meters) < 1
+		if !added && race.Meters > meters+1 {
+			// The race they ran isn't a standard one; slot it in here.
+			t.Rows = append(t.Rows, row(fmtDist(meters, unit)+" "+unit.Name, meters, total, true))
+			added = true
+		}
+		if ran {
+			// Show their actual time rather than a prediction of it.
+			t.Rows = append(t.Rows, row(race.Name, meters, total, true))
+			added = true
+			continue
+		}
+		t.Rows = append(t.Rows, row(race.Name, race.Meters, RaceTime(score, race.Meters), false))
+	}
+	return t
+}
+
 // bothDist formats meters in km and miles, e.g. "10 km · 6.21 mi".
 func bothDist(meters float64) string {
 	return fmtDist(meters, Kilometer) + " km · " + fmtDist(meters, Mile) + " mi"
@@ -324,4 +409,41 @@ func bothDist(meters float64) string {
 // trailing zeros (10 rather than 10.00, 13.11 rather than 13.110).
 func fmtDist(meters float64, u Unit) string {
 	return strconv.FormatFloat(math.Round(meters/u.Meters*100)/100, 'f', -1, 64)
+}
+
+// Marker is an extra row in the split table, such as halfway or a fuel
+// stop. Short labels the split it lands on, when it falls on a boundary.
+type Marker struct {
+	Label, Short string
+	Meters       float64
+}
+
+// sortMarkers orders markers by distance, keeping ties in the given order.
+func sortMarkers(ms []Marker) {
+	sort.SliceStable(ms, func(i, j int) bool { return ms[i].Meters < ms[j].Meters })
+}
+
+// fuelMarkers returns a marker for each fuel stop before the finish.
+func fuelMarkers(f FuelEvery, splits []Split) []Marker {
+	finish := splits[len(splits)-1]
+	var ms []Marker
+	for n := 1; ; n++ {
+		var at float64
+		switch {
+		case f.Time > 0:
+			t := time.Duration(n) * f.Time
+			if t >= finish.Elapsed-time.Second {
+				return ms
+			}
+			at = MetersAt(splits, t)
+		case f.Meters > 0:
+			at = float64(n) * f.Meters
+			if at >= finish.Meters-0.5 {
+				return ms
+			}
+		default:
+			return ms
+		}
+		ms = append(ms, Marker{Label: "Fuel " + strconv.Itoa(n), Short: "fuel " + strconv.Itoa(n), Meters: at})
+	}
 }
