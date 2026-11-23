@@ -78,3 +78,42 @@ var equivRaces = []Race{
 	{"Half", 21097.5},
 	{"Marathon", 42195},
 }
+
+// velocityFor is the inverse of vo2Cost: the speed (meters/minute) that
+// costs vo2 ml/kg/min of oxygen.
+func velocityFor(vo2 float64) float64 {
+	const a, b = 0.000104, 0.182258
+	c := -4.60 - vo2
+	return (-b + math.Sqrt(b*b-4*a*c)) / (2 * a)
+}
+
+// kmPaceAt returns the pace per km for running at the given share of
+// VDOT.
+func kmPaceAt(vdot, share float64) time.Duration {
+	return time.Duration(1000 / velocityFor(share*vdot) * float64(time.Minute))
+}
+
+// Zone is one of Daniels' training intensities. Fast and Slow are paces
+// per km; they're equal for zones with a single target pace.
+type Zone struct {
+	Name, Use  string
+	Fast, Slow time.Duration
+}
+
+// Zones returns Daniels' training paces for a VDOT. Threshold and
+// interval are set as shares of VDOT that reproduce his published pace
+// tables; easy is the 59-74% band he describes; marathon is the
+// predicted marathon pace; and repetition is interval pace less 6
+// seconds per 400 m.
+func Zones(vdot float64) []Zone {
+	marathon := PaceFor(RaceTime(vdot, 42195), 42195, Kilometer)
+	interval := kmPaceAt(vdot, 0.98)
+	rep := interval - 15*time.Second // 6 s per 400 m
+	return []Zone{
+		{"Easy", "easy and long runs, recovery", kmPaceAt(vdot, 0.74), kmPaceAt(vdot, 0.59)},
+		{"Marathon", "marathon-pace runs", marathon, marathon},
+		{"Threshold", "tempo runs, cruise intervals", kmPaceAt(vdot, 0.88), kmPaceAt(vdot, 0.88)},
+		{"Interval", "3-5 minute repeats", interval, interval},
+		{"Repetition", "200-400 m repeats, full recovery", rep, rep},
+	}
+}

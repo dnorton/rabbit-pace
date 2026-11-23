@@ -138,6 +138,9 @@ rabbit -time 3:30:00 -dist marathon -every 5k -fuel 30min
 # VDOT fitness score and predicted times at other distances
 rabbit -time 45:30 -dist 10k -vdot -only
 rabbit -time 45:30 -dist 10k -equiv
+
+# Training paces (easy, marathon, threshold, interval, repetition)
+rabbit -time 45:30 -dist 10k -zones
 ```
 
 The split table shows pace in both min/km and min/mi. Run `rabbit -h` for
@@ -206,7 +209,7 @@ Pace      4:59 /km · 8:01 /mi
 A stop that lands exactly on a split labels that split instead, e.g.
 `2 (fuel 2)` for `-fuel 5k -every 5k`.
 
-### Race fitness: `-vdot` and `-equiv`
+### Race fitness: `-vdot`, `-equiv` and `-zones`
 
 Give a recent race result and `-vdot` adds Jack Daniels' VDOT, a fitness
 score worked out from the Daniels/Gilbert equations. `-equiv` uses it to
@@ -238,6 +241,38 @@ The race you ran is highlighted, and added as its own row if it isn't one of
 the standard distances. Both need a race between 1500 m and the marathon.
 Predictions assume equal training for each distance: a 10K runner who
 hasn't done the long runs won't hit the marathon time.
+
+`-zones` turns the same VDOT into Daniels' training paces:
+
+```
+$ rabbit -time 45:30 -dist 10k -zones
+Distance  10 km · 6.21 mi
+Time      45:30
+Pace      4:33 /km · 7:19 /mi
+VDOT      44.7
+
+╭────────────┬───────────┬────────────┬──────────────────────────────────╮
+│       Zone │  Pace /km │   Pace /mi │ Use                              │
+├────────────┼───────────┼────────────┼──────────────────────────────────┤
+│       Easy │ 5:21–6:25 │ 8:37–10:19 │ easy and long runs, recovery     │
+│   Marathon │      4:58 │       7:59 │ marathon-pace runs               │
+│  Threshold │      4:39 │       7:30 │ tempo runs, cruise intervals     │
+│   Interval │      4:16 │       6:52 │ 3-5 minute repeats               │
+│ Repetition │      4:01 │       6:28 │ 200-400 m repeats, full recovery │
+╰────────────┴───────────┴────────────┴──────────────────────────────────╯
+```
+
+Threshold and interval are set as shares of VDOT that match Daniels'
+published pace tables, easy is the 59–74% band he describes, marathon is
+the predicted marathon pace, and repetition is interval pace less 6 seconds
+per 400 m. Add `-mph` or `-kph` for treadmill speeds.
+
+Use a recent race you ran all-out, not a goal time: a goal gives you the
+paces for fitness you don't have yet.
+
+VDOT is a trademark of The Run SMART Project, LLC. rabbit is not affiliated
+with or endorsed by them; it implements the published Daniels/Gilbert
+equations (*Oxygen Power*, 1979).
 
 ### Markdown (Obsidian, READMEs)
 
