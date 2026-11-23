@@ -34,9 +34,9 @@ type Table struct {
 
 // Row is one table row.
 type Row struct {
-	Cells []string
-	Half  bool // the halfway row, highlighted
-	Trend int  // -1 faster than target, +1 slower, 0 on target
+	Cells     []string
+	Highlight bool // a row to pick out, such as halfway or the race you ran
+	Trend     int  // -1 faster than target, +1 slower, 0 on target
 }
 
 // Colours use the terminal's 16 basic ANSI colours, so they follow the
@@ -98,7 +98,7 @@ func (r Report) WriteStyled(w io.Writer) error {
 						style = style.Foreground(slowerColor)
 					}
 				}
-				if row.Half {
+				if row.Highlight {
 					style = style.Bold(true)
 					if col == 0 {
 						style = style.Foreground(halfColor)
@@ -133,7 +133,7 @@ func (r Report) WriteMarkdown(w io.Writer) error {
 		b.WriteString("\n")
 		for _, row := range t.Rows {
 			cells := append([]string(nil), row.Cells...)
-			if row.Half {
+			if row.Highlight {
 				cells[0] = "**" + cells[0] + "**"
 			}
 			b.WriteString("| " + strings.Join(cells, " | ") + " |\n")

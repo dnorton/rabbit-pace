@@ -222,3 +222,77 @@ func SplitAt(splits []Split, at float64) (Split, int) {
 	}
 	return Split{}, -1
 }
+
+// FuelEvery is how often to take fuel: every Time of running, or every
+// Meters. Exactly one is set.
+type FuelEvery struct {
+	Time   time.Duration
+	Meters float64
+}
+
+// fuelTimeUnits are the time units -fuel accepts. "m" isn't one: it
+// means meters, as it does everywhere else.
+var fuelTimeUnits = map[string]time.Duration{
+	"min": time.Minute, "mins": time.Minute, "minute": time.Minute, "minutes": time.Minute,
+	"h": time.Hour, "hr": time.Hour, "hrs": time.Hour, "hour": time.Hour, "hours": time.Hour,
+}
+
+// ParseFuel parses a -fuel interval: a time such as "30min", "1h" or
+// "45:00", or a distance such as "8k", "5mi" or "5000m".
+func ParseFuel(s string, u Unit) (FuelEvery, error) {
+	s = strings.ToLower(strings.TrimSpace(s))
+	if strings.Contains(s, ":") {
+		d, err := ParseClock(s)
+		if err == nil && d < time.Minute {
+			err = fmt.Errorf("-fuel %q is too often", s)
+		}
+		return FuelEvery{Time: d}, err
+	}
+
+	// Split into the number and its unit.
+	i := strings.IndexFunc(s, func(r rune) bool { return (r < '0' || r > '9') && r != '.' })
+	numStr, suffix := s, ""
+	if i >= 0 {
+		numStr, suffix = s[:i], strings.TrimSpace(s[i:])
+	}
+	n, err := strconv.ParseFloat(numStr, 64)
+	if err != nil || n <= 0 {
+		return FuelEvery{}, fmt.Errorf("invalid -fuel %q (use a time like 30min or 45:00, or a distance like 8k)", s)
+	}
+	if suffix == "" {
+		return FuelEvery{}, fmt.Errorf("-fuel %q needs a unit: %smin for minutes, or %sk / %smi for distance", s, numStr, numStr, numStr)
+	}
+	if per, ok := fuelTimeUnits[suffix]; ok {
+		d := time.Duration(n * float64(per))
+		if d < time.Minute {
+			return FuelEvery{}, fmt.Errorf("-fuel %q is too often", s)
+		}
+		return FuelEvery{Time: d}, nil
+	}
+
+	m, err := ParseDistance(s, u)
+	if err != nil {
+		return FuelEvery{}, fmt.Errorf("invalid -fuel %q (use a time like 30min or 45:00, or a distance like 8k)", s)
+	}
+	if m < 400 {
+		hint := ""
+		if suffix == "m" {
+			hint = fmt.Sprintf(" (that's %s meters; for minutes use %smin)", numStr, numStr)
+		}
+		return FuelEvery{}, fmt.Errorf("-fuel %q is too often%s", s, hint)
+	}
+	return FuelEvery{Meters: m}, nil
+}
+
+// MetersAt returns how far along the splits the runner is after elapsed
+// time at, assuming even pace within each split.
+func MetersAt(splits []Split, at time.Duration) float64 {
+	start, elapsed := 0.0, time.Duration(0)
+	for _, s := range splits {
+		if at <= s.Elapsed {
+			return start + float64(at-elapsed)/float64(s.Time)*(s.Meters-start)
+		}
+		start, elapsed = s.Meters, s.Elapsed
+	}
+	return splits[len(splits)-1].Meters
+}

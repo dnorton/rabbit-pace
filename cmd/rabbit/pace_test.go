@@ -240,3 +240,61 @@ func TestKPH(t *testing.T) {
 		}
 	}
 }
+
+func TestParseFuel(t *testing.T) {
+	tests := []struct {
+		in   string
+		want FuelEvery
+	}{
+		{"30min", FuelEvery{Time: 30 * time.Minute}},
+		{"45mins", FuelEvery{Time: 45 * time.Minute}},
+		{"20 minutes", FuelEvery{Time: 20 * time.Minute}},
+		{"45:00", FuelEvery{Time: 45 * time.Minute}},
+		{"1h", FuelEvery{Time: time.Hour}},
+		{"1.5hr", FuelEvery{Time: 90 * time.Minute}},
+		{"8k", FuelEvery{Meters: 8000}},
+		{"800m", FuelEvery{Meters: 800}},
+		{"5mi", FuelEvery{Meters: 5 * Mile.Meters}},
+	}
+	for _, tt := range tests {
+		got, err := ParseFuel(tt.in, Kilometer)
+		if err != nil || got != tt.want {
+			t.Errorf("ParseFuel(%q) = %+v, %v; want %+v", tt.in, got, err, tt.want)
+		}
+	}
+	for _, bad := range []string{"30", "30m", "30s", "0:30", "soon", "200 meters"} {
+		if _, err := ParseFuel(bad, Kilometer); err == nil {
+			t.Errorf("ParseFuel(%q) succeeded, want error", bad)
+		}
+	}
+}
+
+func TestMetersAtFollowsSplitPace(t *testing.T) {
+	// 10 km negative split: the first km is slower than average, so after
+	// the average pace's worth of time the runner hasn't reached 1 km.
+	splits := Splits(5*time.Minute, Kilometer, 1000, 10000, 0.1)
+	if got := MetersAt(splits, 5*time.Minute); got >= 1000 {
+		t.Errorf("MetersAt(5:00) = %v, want under 1000 on a negative split", got)
+	}
+	if got := MetersAt(splits, splits[3].Elapsed); math.Abs(got-4000) > 0.01 {
+		t.Errorf("MetersAt(end of split 4) = %v, want 4000", got)
+	}
+}
+
+func TestFuelMarkers(t *testing.T) {
+	splits := Splits(5*time.Minute, Kilometer, 1000, 21097.5, 0)
+	// 1:45:29 at 5:00/km: stops at 30, 60 and 90 minutes.
+	ms := fuelMarkers(FuelEvery{Time: 30 * time.Minute}, splits)
+	if len(ms) != 3 || math.Abs(ms[0].Meters-6000) > 0.01 || ms[2].Label != "Fuel 3" {
+		t.Errorf("time fuel markers = %+v", ms)
+	}
+	// Every 7 km: at 7 and 14, but not at the finish.
+	ms = fuelMarkers(FuelEvery{Meters: 7000}, splits)
+	if len(ms) != 3 || ms[2].Meters != 21000 {
+		t.Errorf("distance fuel markers = %+v", ms)
+	}
+	ms = fuelMarkers(FuelEvery{Meters: 21097.5}, splits)
+	if len(ms) != 0 {
+		t.Errorf("a stop at the finish should be dropped, got %+v", ms)
+	}
+}

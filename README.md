@@ -131,6 +131,13 @@ rabbit -time 3:00:00 -dist marathon -every 5k -halfway -neg 2
 rabbit -pace 7:00 -unit mi -dist 5k -mph
 rabbit -pace 4:30 -dist 10k -kph
 rabbit -pace 4:30 -dist 10k -mph -kph
+
+# A row for each gel, every 30 minutes
+rabbit -time 3:30:00 -dist marathon -every 5k -fuel 30min
+
+# VDOT fitness score and predicted times at other distances
+rabbit -time 45:30 -dist 10k -vdot -only
+rabbit -time 45:30 -dist 10k -equiv
 ```
 
 The split table shows pace in both min/km and min/mi. Run `rabbit -h` for
@@ -160,6 +167,77 @@ Distance  6 km · 3.73 mi
 Time      30:00
 Pace      5:00 /km · 8:03 /mi
 ```
+
+### Fuel stops: `-fuel`
+
+`-fuel` adds a row for each gel or drink, so you know where on the course
+(and at what clock time) each one falls. Give a time (`30min`, `45:00`, `1h`)
+or a distance (`8k`, `5mi`, `800m`). As everywhere else in rabbit, `m` means
+meters, so minutes are written `min`.
+
+```
+$ rabbit -time 3:30:00 -dist marathon -every 5k -fuel 30min -halfway
+Distance  42.2 km · 26.22 mi
+Time      3:30:00
+Pace      4:59 /km · 8:01 /mi
+
+╭────────┬───────────────┬──────────┬──────────┬────────────┬────────────╮
+│  Split │ Distance (km) │ Pace /km │ Pace /mi │ Split Time │ Total Time │
+├────────┼───────────────┼──────────┼──────────┼────────────┼────────────┤
+│      1 │             5 │     4:59 │     8:01 │      24:53 │      24:53 │
+│ Fuel 1 │          6.03 │     4:59 │     8:01 │            │      30:00 │
+│      2 │            10 │     4:59 │     8:01 │      24:53 │      49:46 │
+│ Fuel 2 │         12.06 │     4:59 │     8:01 │            │    1:00:00 │
+│      3 │            15 │     4:59 │     8:01 │      24:53 │    1:14:39 │
+│ Fuel 3 │         18.08 │     4:59 │     8:01 │            │    1:30:00 │
+│      4 │            20 │     4:59 │     8:01 │      24:53 │    1:39:32 │
+│   Half │          21.1 │     4:59 │     8:01 │            │    1:45:00 │
+│ Fuel 4 │         24.11 │     4:59 │     8:01 │            │    2:00:00 │
+│      5 │            25 │     4:59 │     8:01 │      24:53 │    2:04:25 │
+│      6 │            30 │     4:59 │     8:01 │      24:53 │    2:29:18 │
+│ Fuel 5 │         30.14 │     4:59 │     8:01 │            │    2:30:00 │
+│      7 │            35 │     4:59 │     8:01 │      24:53 │    2:54:11 │
+│ Fuel 6 │         36.17 │     4:59 │     8:01 │            │    3:00:00 │
+│      8 │            40 │     4:59 │     8:01 │      24:53 │    3:19:05 │
+│      9 │          42.2 │     4:59 │     8:01 │      10:55 │    3:30:00 │
+╰────────┴───────────────┴──────────┴──────────┴────────────┴────────────╯
+```
+
+A stop that lands exactly on a split labels that split instead, e.g.
+`2 (fuel 2)` for `-fuel 5k -every 5k`.
+
+### Race fitness: `-vdot` and `-equiv`
+
+Give a recent race result and `-vdot` adds Jack Daniels' VDOT, a fitness
+score worked out from the Daniels/Gilbert equations. `-equiv` uses it to
+predict your times at other distances, in place of the split table:
+
+```
+$ rabbit -time 45:30 -dist 10k -equiv
+Distance  10 km · 6.21 mi
+Time      45:30
+Pace      4:33 /km · 7:19 /mi
+VDOT      44.7
+
+╭──────────┬───────────────┬─────────┬──────────┬──────────╮
+│     Race │ Distance (km) │    Time │ Pace /km │ Pace /mi │
+├──────────┼───────────────┼─────────┼──────────┼──────────┤
+│    1500m │           1.5 │    5:58 │     3:59 │     6:24 │
+│     Mile │          1.61 │    6:27 │     4:00 │     6:27 │
+│       3K │             3 │   12:45 │     4:15 │     6:50 │
+│       5K │             5 │   21:56 │     4:23 │     7:04 │
+│      10K │            10 │   45:30 │     4:33 │     7:19 │
+│      15K │            15 │ 1:10:02 │     4:40 │     7:31 │
+│  10 Mile │         16.09 │ 1:15:30 │     4:42 │     7:33 │
+│     Half │          21.1 │ 1:40:51 │     4:47 │     7:42 │
+│ Marathon │          42.2 │ 3:29:30 │     4:58 │     7:59 │
+╰──────────┴───────────────┴─────────┴──────────┴──────────╯
+```
+
+The race you ran is highlighted, and added as its own row if it isn't one of
+the standard distances. Both need a race between 1500 m and the marathon.
+Predictions assume equal training for each distance: a 10K runner who
+hasn't done the long runs won't hit the marathon time.
 
 ### Markdown (Obsidian, READMEs)
 
