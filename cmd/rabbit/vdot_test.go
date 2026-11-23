@@ -93,3 +93,71 @@ func TestRunVDOTFlags(t *testing.T) {
 		}
 	}
 }
+
+func TestVelocityForInvertsVO2Cost(t *testing.T) {
+	for _, v := range []float64{150, 200, 250, 350} {
+		if got := velocityFor(vo2Cost(v)); math.Abs(got-v) > 1e-9 {
+			t.Errorf("velocityFor(vo2Cost(%v)) = %v", v, got)
+		}
+	}
+}
+
+// Reference paces for VDOT 50 from Daniels' Running Formula (2nd ed.,
+// table 3.2, as quoted second-hand, not checked against the book):
+// M 7:17/mi, T 6:51/mi, I 93 s and R 87 s per 400 m, and a single easy
+// pace of 8:32/mi, which should fall in the easy band.
+func TestZonesMatchDanielsTables(t *testing.T) {
+	perKm := func(perMile string) time.Duration {
+		d, _ := ParseClock(perMile)
+		return PaceFor(d, Mile.Meters, Kilometer)
+	}
+	per400 := func(secs float64) time.Duration {
+		return time.Duration(secs * 2.5 * float64(time.Second))
+	}
+	z := Zones(50)
+	want := map[string]time.Duration{
+		"Marathon":   perKm("7:17"),
+		"Threshold":  perKm("6:51"),
+		"Interval":   per400(93),
+		"Repetition": per400(87),
+	}
+	for _, zone := range z {
+		w, ok := want[zone.Name]
+		if !ok {
+			continue
+		}
+		if diff := (zone.Fast - w).Abs(); diff > 3*time.Second {
+			t.Errorf("%s pace = %s/km, want %s/km (±3s)", zone.Name, FormatClock(zone.Fast), FormatClock(w))
+		}
+	}
+	easy, ref := z[0], perKm("8:32")
+	if easy.Name != "Easy" || ref < easy.Fast || ref > easy.Slow {
+		t.Errorf("easy band %s–%s/km doesn't contain %s/km", FormatClock(easy.Fast), FormatClock(easy.Slow), FormatClock(ref))
+	}
+	if z[4].Fast != z[3].Fast-15*time.Second {
+		t.Errorf("repetition should be interval pace less 6 s per 400 m")
+	}
+}
+
+func TestRunZones(t *testing.T) {
+	var buf strings.Builder
+	if err := run([]string{"-time", "19:57", "-dist", "5k", "-zones", "-md"}, &buf); err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range []string{"- **VDOT:** 50.0", "| Threshold | 4:15 | 6:51 |", "|---:|---:|---:|:---|"} {
+		if !strings.Contains(buf.String(), s) {
+			t.Errorf("-zones output missing %q:\n%s", s, buf.String())
+		}
+	}
+	bad := [][]string{
+		{"-time", "45:30", "-dist", "10k", "-zones", "-equiv"},
+		{"-time", "45:30", "-dist", "10k", "-zones", "-only"},
+		{"-time", "45:30", "-dist", "10k", "-zones", "-fuel", "30min"},
+		{"-time", "2:00", "-dist", "800m", "-zones"},
+	}
+	for _, args := range bad {
+		if err := run(args, io.Discard); err == nil {
+			t.Errorf("run(%q) succeeded, want error", args)
+		}
+	}
+}

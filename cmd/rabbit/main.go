@@ -30,7 +30,7 @@ Usage:
   rabbit [two of: -time <time>  -pace <pace>  -dist <distance>]
          [-unit km|mi] [-every <distance>] [-halfway]
          [-neg <percent> | -pos <percent>] [-mph] [-kph] [-md] [-only]
-         [-fuel <time|distance>] [-vdot] [-equiv]
+         [-fuel <time|distance>] [-vdot] [-equiv | -zones]
   rabbit version
 
 Flags:
@@ -54,6 +54,9 @@ Flags:
              between 1500 m and the marathon
   -equiv     show predicted times at other race distances, from VDOT,
              instead of the split table
+  -zones     show Daniels training paces (easy, marathon, threshold,
+             interval, repetition) from VDOT, instead of the split table.
+             Use a recent race, not a goal time
 
 Formats:
   time/pace  hh:mm:ss, mm:ss, or Go durations like 45m30s
@@ -68,6 +71,7 @@ Examples:
   rabbit -pace 7:00 -unit mi -dist 10k -md
   rabbit -time 3:30:00 -dist marathon -every 5k -fuel 30min
   rabbit -time 45:30 -dist 10k -equiv
+  rabbit -time 45:30 -dist 10k -zones
 `
 
 func main() {
@@ -122,6 +126,7 @@ func runCalc(args []string, out io.Writer) error {
 	fuelStr := fs.String("fuel", "", "add a fuel row every so often, e.g. 30min (time) or 8k (distance)")
 	vdot := fs.Bool("vdot", false, "add the VDOT fitness score for this race result")
 	equiv := fs.Bool("equiv", false, "show equivalent times at other race distances instead of splits")
+	zones := fs.Bool("zones", false, "show Daniels training paces instead of splits")
 	// Report flag errors ourselves, as one line, rather than letting the
 	// flag package print them along with the whole usage text.
 	fs.SetOutput(io.Discard)
@@ -145,8 +150,17 @@ func runCalc(args []string, out io.Writer) error {
 	if *only && (*everyStr != "" || *halfway || *fuelStr != "") {
 		return errors.New("-every, -halfway and -fuel change the split table, which -only leaves out")
 	}
-	if *equiv && (*only || *everyStr != "" || *halfway || *fuelStr != "") {
-		return errors.New("-equiv replaces the split table, so it can't be used with -only, -every, -halfway or -fuel")
+	if *equiv && *zones {
+		return errors.New("use either -equiv or -zones, not both")
+	}
+	if *equiv || *zones {
+		name := "-equiv"
+		if *zones {
+			name = "-zones"
+		}
+		if *only || *everyStr != "" || *halfway || *fuelStr != "" {
+			return fmt.Errorf("%s replaces the split table, so it can't be used with -only, -every, -halfway or -fuel", name)
+		}
 	}
 	if *neg != 0 && *pos != 0 {
 		return errors.New("use either -neg or -pos, not both")
@@ -251,7 +265,7 @@ func runCalc(args []string, out io.Writer) error {
 			Value: firstKm + " → " + lastKm + " /km · " + firstMi + " → " + lastMi + " /mi",
 		})
 	}
-	if *vdot || *equiv {
+	if *vdot || *equiv || *zones {
 		if err := checkVDOTRange(meters); err != nil {
 			return err
 		}
@@ -259,6 +273,10 @@ func runCalc(args []string, out io.Writer) error {
 		r.Summary = append(r.Summary, Field{Label: "VDOT", Value: fmt.Sprintf("%.1f", score)})
 		if *equiv {
 			r.Table = equivTable(score, meters, total, unit, *mph, *kph)
+			return r.write(out, *md)
+		}
+		if *zones {
+			r.Table = zonesTable(Zones(score), *mph, *kph)
 			return r.write(out, *md)
 		}
 	}
@@ -397,6 +415,40 @@ func equivTable(score, meters float64, total time.Duration, unit Unit, mph, kph 
 		}
 		t.Rows = append(t.Rows, row(race.Name, race.Meters, RaceTime(score, race.Meters), false))
 	}
+	return t
+}
+
+// zonesTable lists training paces per km and mile, with speeds if asked
+// for, and what each zone is for.
+func zonesTable(zones []Zone, mph, kph bool) *Table {
+	t := &Table{Headers: []string{"Zone", "Pace /km", "Pace /mi"}}
+	if mph {
+		t.Headers = append(t.Headers, "MPH")
+	}
+	if kph {
+		t.Headers = append(t.Headers, "KPH")
+	}
+	t.Headers = append(t.Headers, "Use")
+	// span formats a value for the fast and slow ends, as one value if
+	// they're the same.
+	span := func(f func(time.Duration) string, a, b time.Duration) string {
+		if x, y := f(a), f(b); x != y {
+			return x + "–" + y
+		}
+		return f(a)
+	}
+	mi := func(p time.Duration) string { return FormatClock(PaceFor(p, Kilometer.Meters, Mile)) }
+	for _, z := range zones {
+		cells := []string{z.Name, span(FormatClock, z.Fast, z.Slow), span(mi, z.Fast, z.Slow)}
+		if mph {
+			cells = append(cells, span(func(p time.Duration) string { return fmt.Sprintf("%.1f", MPH(p, Kilometer)) }, z.Slow, z.Fast))
+		}
+		if kph {
+			cells = append(cells, span(func(p time.Duration) string { return fmt.Sprintf("%.1f", KPH(p, Kilometer)) }, z.Slow, z.Fast))
+		}
+		t.Rows = append(t.Rows, Row{Cells: append(cells, z.Use)})
+	}
+	t.LeftCols = []int{len(t.Headers) - 1}
 	return t
 }
 

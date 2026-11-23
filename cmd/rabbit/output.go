@@ -30,6 +30,18 @@ type Table struct {
 	// TrendCols are the columns coloured by each row's Trend (the pace
 	// and speed columns).
 	TrendCols []int
+	// LeftCols are text columns, aligned left rather than right.
+	LeftCols []int
+}
+
+// isLeft reports whether column col is left-aligned.
+func (t *Table) isLeft(col int) bool {
+	for _, c := range t.LeftCols {
+		if c == col {
+			return true
+		}
+	}
+	return false
 }
 
 // Row is one table row.
@@ -87,9 +99,15 @@ func (r Report) WriteStyled(w io.Writer) error {
 			Rows(rows...).
 			StyleFunc(func(i, col int) lipgloss.Style {
 				if i == table.HeaderRow {
+					if t.isLeft(col) {
+						return headerStyle.Align(lipgloss.Left)
+					}
 					return headerStyle
 				}
 				row, style := t.Rows[i], cellStyle
+				if t.isLeft(col) {
+					style = style.Align(lipgloss.Left)
+				}
 				if trendCol[col] {
 					switch {
 					case row.Trend < 0:
@@ -127,8 +145,12 @@ func (r Report) WriteMarkdown(w io.Writer) error {
 
 	if t := r.Table; t != nil {
 		b.WriteString("\n| " + strings.Join(t.Headers, " | ") + " |\n|")
-		for range t.Headers {
-			b.WriteString("---:|")
+		for col := range t.Headers {
+			if t.isLeft(col) {
+				b.WriteString(":---|")
+			} else {
+				b.WriteString("---:|")
+			}
 		}
 		b.WriteString("\n")
 		for _, row := range t.Rows {
