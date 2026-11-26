@@ -3,7 +3,7 @@ module github.com/dnorton/rabbit-pace
 go 1.27.0
 
 require (
-	charm.land/lipgloss/v2 v2.0.6
+	charm.land/lipgloss/v2 v2.1.1
 	github.com/charmbracelet/colorprofile v0.4.3
 )
 
